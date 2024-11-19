@@ -43,6 +43,13 @@ export class Database extends TypedEventEmitter<DatabaseEvents> {
 	private readonly logger?: DatabaseLogger
 
 	/**
+	 * Gets the root database instance.
+	 */
+	get rootDB(): RootDatabase {
+		return this.rootDb
+	}
+
+	/**
 	 * Creates a new Database instance.
 	 *
 	 * @param {string} path The file system path where the database will be stored
