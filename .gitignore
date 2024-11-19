@@ -1,4 +1,4 @@
-/test-db
+test-db/
 # Logs
 logs
 *.log

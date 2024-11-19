@@ -3,10 +3,15 @@ import { Collection } from "./collection.js"
 import type {
 	Document,
 	IdGenerator,
-	Result,
 	SafeDatabaseOptions,
 	SafeRootDatabaseOptionsWithPath,
 } from "./types.js"
+import {
+	ConstraintError,
+	NotFoundError,
+	UnknownError,
+	ValidationError,
+} from "./errors.js"
 
 export type DatabaseLogger = (msg: string) => void
 
@@ -25,7 +30,7 @@ export class Database {
 
 	constructor(path: string, options: DatabaseConfig = {}) {
 		if (!path) {
-			throw new Error("Database path is required")
+			throw new ValidationError("Database path is required")
 		}
 		this.maxCollections = options.maxCollections ?? 12
 		this.idGenerator = options.idGenerator ?? (() => crypto.randomUUID())
@@ -43,36 +48,31 @@ export class Database {
 	}
 
 	/**
-	 * Creates or retrieves a collection
+	 * Creates or retrieves a collection.
+	 *
+	 * @param {string} name The name of the collection.
+	 * @param {Partial<SafeDatabaseOptions>} options Optional settings for the collection.
+	 * @returns {Collection<Document<T>>} The created or retrieved collection.
+	 * @throws {ConstraintError} If the collection already exists or the max collections limit is reached.
+	 * @throws {UnknownError} If an unexpected error occurs.
 	 */
 	collection<T>(
 		name: string,
 		options?: Partial<SafeDatabaseOptions>
-	): Result<Collection<Document<T>>> {
+	): Collection<Document<T>> {
 		this.logger?.(`Attempting to create/retrieve collection: ${name}`)
 
 		if (this.collections.has(name)) {
-			this.logger?.(`Collection "${name}" already exists`)
-			return {
-				error: {
-					type: "CONSTRAINT",
-					message: `Collection "${name}" already exists`,
-					constraint: "unique_collection",
-				},
-			}
+			throw new ConstraintError(`Collection "${name}" already exists`, {
+				constraint: "unique_collection",
+			})
 		}
 
 		if (this.dbs.size >= this.maxCollections) {
-			this.logger?.(
-				`Maximum number of collections (${this.maxCollections}) reached`
+			throw new ConstraintError(
+				`Maximum number of collections (${this.maxCollections}) has been reached`,
+				{ constraint: "max_collections" }
 			)
-			return {
-				error: {
-					type: "CONSTRAINT",
-					message: `Maximum number of collections (${this.maxCollections}) has been reached`,
-					constraint: "max_collections",
-				},
-			}
 		}
 
 		try {
@@ -91,83 +91,131 @@ export class Database {
 			this.logger?.(`Collection "${name}" created successfully`)
 			return collection
 		} catch (error) {
-			const errorMsg = `Failed to create collection "${name}": ${
-				error instanceof Error ? error.message : String(error)
-			}`
+			const errorMsg = `Failed to create collection "${name}": ${error instanceof Error ? error.message : String(error)}`
 			this.logger?.(errorMsg)
-			return {
-				error: {
-					type: "UNKNOWN",
-					message: errorMsg,
-					original: error,
-				},
-			}
+			throw new UnknownError(errorMsg, { original: error })
 		}
 	}
 
 	/**
-	 * Clears all data from a collection
+	 * Clears all data from a collection.
+	 *
+	 * @param {string} name The name of the collection.
+	 * @throws {NotFoundError} If the collection does not exist.
+	 * @throws {UnknownError} If an unexpected error occurs.
 	 */
 	async clearCollection(name: string): Promise<void> {
 		this.logger?.(`Clearing collection: ${name}`)
 		const db = this.dbs.get(name)
 		if (!db) {
-			const errorMsg = `Collection "${name}" not found`
-			this.logger?.(errorMsg)
-			throw new Error(errorMsg)
+			throw new NotFoundError(`Collection "${name}" not found`)
 		}
 
-		await db.clearAsync()
-		await db.committed
-		await db.flushed
-		this.logger?.(`Collection "${name}" cleared`)
+		try {
+			await db.clearAsync()
+			await db.committed
+			await db.flushed
+			this.logger?.(`Collection "${name}" cleared`)
+		} catch (error) {
+			const errorMsg = `Failed to clear collection "${name}": ${error instanceof Error ? error.message : String(error)}`
+			this.logger?.(errorMsg)
+			throw new UnknownError(errorMsg, { original: error })
+		}
 	}
 
 	/**
-	 * Drops a collection and all its data
+	 * Drops a collection and all its data.
+	 *
+	 * @param {string} name The name of the collection.
+	 * @throws {NotFoundError} If the collection does not exist.
+	 * @throws {UnknownError} If an unexpected error occurs.
 	 */
 	async dropCollection(name: string): Promise<void> {
 		this.logger?.(`Dropping collection: ${name}`)
 		const db = this.dbs.get(name)
 		if (!db) {
-			const errorMsg = `Collection "${name}" not found`
-			this.logger?.(errorMsg)
-			throw new Error(errorMsg)
+			throw new NotFoundError(`Collection "${name}" not found`)
 		}
 
-		await db.drop()
-		await db.committed
-		await db.flushed
-		this.dbs.delete(name)
-		this.collections.delete(name)
-		this.logger?.(`Collection "${name}" dropped`)
+		try {
+			await db.drop()
+			await db.committed
+			await db.flushed
+			this.dbs.delete(name)
+			this.collections.delete(name)
+			this.logger?.(`Collection "${name}" dropped`)
+		} catch (error) {
+			const errorMsg = `Failed to drop collection "${name}": ${error instanceof Error ? error.message : String(error)}`
+			this.logger?.(errorMsg)
+			throw new UnknownError(errorMsg, { original: error })
+		}
 	}
 
 	/**
-	 * Clears all collections
+	 * Clears all collections.
+	 *
+	 * @throws {UnknownError} If an unexpected error occurs.
 	 */
 	async clearAll(): Promise<void> {
 		this.logger?.("Clearing all collections")
-		await Promise.all(
-			Array.from(this.dbs.keys()).map((name) => this.clearCollection(name))
-		)
-		this.logger?.("All collections cleared")
+		try {
+			await Promise.all(
+				Array.from(this.dbs.keys()).map((name) => this.clearCollection(name))
+			)
+			this.logger?.("All collections cleared")
+		} catch (error) {
+			const errorMsg = `Failed to clear all collections: ${error instanceof Error ? error.message : String(error)}`
+			this.logger?.(errorMsg)
+			throw new UnknownError(errorMsg, { original: error })
+		}
 	}
 
 	/**
-	 * Closes the database and all collections
+	 * Closes the database and all collections.
+	 *
+	 * @throws {UnknownError} If an unexpected error occurs.
 	 */
 	async close(): Promise<void> {
 		this.logger?.("Closing database")
-		await Promise.all(
-			Array.from(this.collections.values()).map(async (collection) => {
-				await collection.committed
-				await collection.flushed
-			})
-		)
-		await this.rootDb.close()
-		this.collections.clear()
-		this.dbs.clear()
-		this.logger?.("Database closed")
+		try {
+			await Promise.all(
+				Array.from(this.collections.values()).map(async (collection) => {
+					await collection.committed
+					await collection.flushed
+				})
+			)
+			await this.rootDb.close()
+			this.collections.clear()
+			this.dbs.clear()
+			this.logger?.("Database closed")
+		} catch (error) {
+			const errorMsg = `Failed to close database: ${error instanceof Error ? error.message : String(error)}`
+			this.logger?.(errorMsg)
+			throw new UnknownError(errorMsg, { original: error })
+		}
+	}
+	/**
+	 * Creates a snapshot backup of the database at the specified path.
+	 *
+	 * @param {string} path The path where the backup will be created.
+	 * @param {boolean} [compact=false] Whether to apply compaction while making the backup (slower but smaller).
+	 * @throws {ValidationError} If the backup path is invalid or not provided.
+	 * @throws {UnknownError} If an unexpected error occurs during the backup operation.
+	 */
+	async backup(path: string, compact = false): Promise<void> {
+		if (!path) {
+			throw new ValidationError("Backup path is required")
+		}
+
+		this.logger?.(`Starting backup to path: ${path} with compact: ${compact}`)
+
+		try {
+			await this.rootDb.backup(path, compact)
+			this.logger?.(`Backup completed successfully to path: ${path}`)
+		} catch (error) {
+			const errorMsg = `Backup operation failed: ${error instanceof Error ? error.message : String(error)}`
+			this.logger?.(errorMsg)
+			throw new UnknownError(errorMsg, { original: error })
+		}
 	}
 }
