@@ -1,0 +1,23 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:base"],
+  "packageRules": [
+    {
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["dependencies", "devDependencies"],
+      "rangeStrategy": "auto"
+    }
+  ],
+  "rangeStrategy": "auto",
+  "npm": {
+    "fileMatch": ["package.json", "pnpm-lock.yaml"],
+    "enabled": true
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "extends": ["schedule:weekly"]
+  },
+  "pnpm": {
+    "enabled": true
+  }
+}
