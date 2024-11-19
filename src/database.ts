@@ -1,9 +1,9 @@
 import { type Database as LMDBDatabase, type RootDatabase, open } from "lmdb"
 import { Collection } from "./collection.js"
 import type {
-	DatabaseError,
 	Document,
 	IdGenerator,
+	Result,
 	SafeDatabaseOptions,
 	SafeRootDatabaseOptionsWithPath,
 } from "./types.js"
@@ -48,7 +48,7 @@ export class Database {
 	collection<T>(
 		name: string,
 		options?: Partial<SafeDatabaseOptions>
-	): Collection<Document<T>> | { error: DatabaseError } {
+	): Result<Collection<Document<T>>> {
 		this.logger?.(`Attempting to create/retrieve collection: ${name}`)
 
 		if (this.collections.has(name)) {

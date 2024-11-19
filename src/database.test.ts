@@ -177,7 +177,7 @@ test("Remove operations", { timeout: TEST_TIMEOUT }, async (t) => {
 	await t.test("remove - single document", async () => {
 		await users.insertMany(sampleUsers)
 
-		const removed = await users.remove({ name: { $eq: "Charlie" } })
+		const removed = await users.removeOne({ name: { $eq: "Charlie" } })
 		assert(!isError(removed))
 		assert.equal(removed, true)
 

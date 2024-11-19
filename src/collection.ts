@@ -16,8 +16,22 @@ export function isError<T>(
 ): result is { error: DatabaseError } {
 	return result != null && typeof result === "object" && "error" in result
 }
+
 /**
  * Collection class provides a MongoDB-like interface for LMDB
+ *
+ * Supported operations:
+ * - find/findOne: Query documents with MongoDB-style filters
+ * - insert/insertMany: Add new documents
+ * - updateOne/updateMany: Modify existing documents
+ * - removeOne/removeMany: Delete documents
+ * - upsert/upsertMany: Insert or update documents
+ *
+ * Query operators:
+ * - $eq/$ne: Equality/inequality
+ * - $gt/$gte/$lt/$lte: Numeric comparisons
+ * - $in/$nin: Array inclusion/exclusion
+ * - $regex: Regular expression matching
  */
 export class Collection<T extends Document> {
 	private readonly db: LMDBDatabase<T, string>
@@ -35,6 +49,23 @@ export class Collection<T extends Document> {
 		this.committed = this.db.committed
 		this.flushed = this.db.flushed
 		this.logger = options.logger
+	}
+
+	/**
+	 * Create a standardized error object
+	 */
+	private createError(
+		type: DatabaseError["type"],
+		message: string,
+		extra?: Partial<Omit<DatabaseError, "type" | "message">>
+	): { error: DatabaseError } {
+		return {
+			error: {
+				type,
+				message,
+				...extra,
+			},
+		}
 	}
 
 	/**
@@ -84,13 +115,13 @@ export class Collection<T extends Document> {
 						compareValue instanceof Date ? compareValue.getTime() : compareValue
 
 					if (typeof v !== "number" || typeof cv !== "number") {
-						return {
-							error: {
-								type: "VALIDATION",
-								message: `Invalid comparison types for ${op}`,
+						return this.createError(
+							"VALIDATION",
+							`Invalid comparison types for ${op}`,
+							{
 								field: String(value),
-							},
-						}
+							}
+						)
 					}
 
 					switch (op) {
@@ -113,13 +144,13 @@ export class Collection<T extends Document> {
 				case "$in": {
 					const arr = compareValue as unknown[]
 					if (!Array.isArray(arr)) {
-						return {
-							error: {
-								type: "VALIDATION",
-								message: "$in requires an array value",
+						return this.createError(
+							"VALIDATION",
+							"$in requires an array value",
+							{
 								field: String(value),
-							},
-						}
+							}
+						)
 					}
 					if (Array.isArray(value)) {
 						if (!value.some((v) => arr.includes(v))) return false
@@ -132,13 +163,13 @@ export class Collection<T extends Document> {
 				case "$nin": {
 					const arr = compareValue as unknown[]
 					if (!Array.isArray(arr)) {
-						return {
-							error: {
-								type: "VALIDATION",
-								message: "$nin requires an array value",
+						return this.createError(
+							"VALIDATION",
+							"$nin requires an array value",
+							{
 								field: String(value),
-							},
-						}
+							}
+						)
 					}
 					if (Array.isArray(value)) {
 						if (value.some((v) => arr.includes(v))) return false
@@ -150,35 +181,31 @@ export class Collection<T extends Document> {
 
 				case "$regex": {
 					if (!(compareValue instanceof RegExp)) {
-						return {
-							error: {
-								type: "VALIDATION",
-								message: "$regex requires a RegExp value",
+						return this.createError(
+							"VALIDATION",
+							"$regex requires a RegExp value",
+							{
 								field: String(value),
-							},
-						}
+							}
+						)
 					}
 					if (typeof value !== "string") {
-						return {
-							error: {
-								type: "VALIDATION",
-								message: "$regex can only be applied to strings",
+						return this.createError(
+							"VALIDATION",
+							"$regex can only be applied to strings",
+							{
 								field: String(value),
-							},
-						}
+							}
+						)
 					}
 					if (!compareValue.test(value)) return false
 					break
 				}
 
 				default:
-					return {
-						error: {
-							type: "VALIDATION",
-							message: `Unknown operator: ${op}`,
-							field: String(value),
-						},
-					}
+					return this.createError("VALIDATION", `Unknown operator: ${op}`, {
+						field: String(value),
+					})
 			}
 		}
 
@@ -230,15 +257,13 @@ export class Collection<T extends Document> {
 			const value = this.db.get(id)
 			return value ?? null
 		} catch (error) {
-			return {
-				error: {
-					type: "UNKNOWN",
-					message: `Get operation failed: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
-					original: error,
-				},
-			}
+			return this.createError(
+				"UNKNOWN",
+				`Get operation failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+				{ original: error }
+			)
 		}
 	}
 
@@ -249,15 +274,13 @@ export class Collection<T extends Document> {
 		try {
 			return version ? this.db.doesExist(id, version) : this.db.doesExist(id)
 		} catch (error) {
-			return {
-				error: {
-					type: "UNKNOWN",
-					message: `Existence check failed: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
-					original: error,
-				},
-			}
+			return this.createError(
+				"UNKNOWN",
+				`Existence check failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+				{ original: error }
+			)
 		}
 	}
 
@@ -269,15 +292,13 @@ export class Collection<T extends Document> {
 			await this.db.prefetch(ids)
 			return undefined
 		} catch (error) {
-			return {
-				error: {
-					type: "UNKNOWN",
-					message: `Prefetch operation failed: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
-					original: error,
-				},
-			}
+			return this.createError(
+				"UNKNOWN",
+				`Prefetch operation failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+				{ original: error }
+			)
 		}
 	}
 
@@ -289,15 +310,13 @@ export class Collection<T extends Document> {
 			const values = await this.db.getMany(ids)
 			return values.map((v) => v ?? null)
 		} catch (error) {
-			return {
-				error: {
-					type: "UNKNOWN",
-					message: `GetMany operation failed: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
-					original: error,
-				},
-			}
+			return this.createError(
+				"UNKNOWN",
+				`GetMany operation failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+				{ original: error }
+			)
 		}
 	}
 
@@ -329,7 +348,6 @@ export class Collection<T extends Document> {
 			if (filter) {
 				query = query.filter(({ value }) => {
 					const filterResult = this.evaluateFilter(value, filter)
-
 					return filterResult
 				})
 			}
@@ -344,26 +362,14 @@ export class Collection<T extends Document> {
 					error instanceof Error ? error.message : String(error)
 				}`
 				this.logger?.(errorMsg)
-				throw {
-					error: {
-						type: "UNKNOWN",
-						message: errorMsg,
-						original: error,
-					},
-				}
+				throw this.createError("UNKNOWN", errorMsg, { original: error })
 			})
 		} catch (error) {
 			const errorMsg = `Find operation failed: ${
 				error instanceof Error ? error.message : String(error)
 			}`
 			this.logger?.(errorMsg)
-			return {
-				error: {
-					type: "UNKNOWN",
-					message: errorMsg,
-					original: error,
-				},
-			}
+			return this.createError("UNKNOWN", errorMsg, { original: error })
 		}
 	}
 
@@ -415,15 +421,13 @@ export class Collection<T extends Document> {
 			await this.db.put(_id, document)
 			return document
 		} catch (error) {
-			return {
-				error: {
-					type: "UNKNOWN",
-					message: `Insert operation failed: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
-					original: error,
-				},
-			}
+			return this.createError(
+				"UNKNOWN",
+				`Insert operation failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+				{ original: error }
+			)
 		}
 	}
 
@@ -451,25 +455,20 @@ export class Collection<T extends Document> {
 					)
 					if (isError(verify)) return verify
 					if (!verify) {
-						return {
-							error: {
-								type: "TRANSACTION",
-								message: `Failed to verify insert for document ${doc._id}`,
-							},
-						}
+						return this.createError(
+							"TRANSACTION",
+							`Failed to verify insert for document ${doc._id}`
+						)
 					}
 				}
 
 				return results
 			} catch (error) {
-				const msg = `InsertMany transaction failed: ${error instanceof Error ? error.message : String(error)}`
+				const msg = `InsertMany transaction failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`
 				this.logger?.(msg)
-				return {
-					error: {
-						type: "TRANSACTION",
-						message: msg,
-					},
-				}
+				return this.createError("TRANSACTION", msg)
 			}
 		})
 	}
@@ -492,15 +491,13 @@ export class Collection<T extends Document> {
 				const result = this.insert(doc)
 				return result
 			} catch (error) {
-				return {
-					error: {
-						type: "TRANSACTION",
-						message: `Upsert operation failed: ${
-							error instanceof Error ? error.message : String(error)
-						}`,
-						original: error,
-					},
-				}
+				return this.createError(
+					"TRANSACTION",
+					`Upsert operation failed: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+					{ original: error }
+				)
 			}
 		})
 	}
@@ -516,7 +513,6 @@ export class Collection<T extends Document> {
 				const results: T[] = []
 
 				for (const op of operations) {
-					// Find existing document synchronously
 					const existing = this.findOne(op.filter)
 					if (isError(existing)) return existing
 
@@ -539,30 +535,29 @@ export class Collection<T extends Document> {
 					const verify = this.get(doc._id)
 					if (isError(verify)) return verify
 					if (!verify) {
-						return {
-							error: {
-								type: "TRANSACTION",
-								message: `Failed to verify upsert for document ${doc._id}`,
-							},
-						}
+						return this.createError(
+							"TRANSACTION",
+							`Failed to verify upsert for document ${doc._id}`
+						)
 					}
 				}
 
 				return results
 			} catch (error) {
-				return {
-					error: {
-						type: "TRANSACTION",
-						message: `UpsertMany operation failed: ${
-							error instanceof Error ? error.message : String(error)
-						}`,
-						original: error,
-					},
-				}
+				return this.createError(
+					"TRANSACTION",
+					`UpsertMany operation failed: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+					{ original: error }
+				)
 			}
 		})
 	}
 
+	/**
+	 * Updates a single document matching the filter
+	 */
 	async updateOne(
 		filter: Filter<T>,
 		update: Partial<Omit<T, "_id">>
@@ -572,7 +567,6 @@ export class Collection<T extends Document> {
 
 		return this.transaction(() => {
 			try {
-				// Use findOne instead of find
 				const existing = this.findOne(filter)
 				this.logger?.(`Found document to update: ${JSON.stringify(existing)}`)
 
@@ -600,25 +594,14 @@ export class Collection<T extends Document> {
 				if (!verify) {
 					const msg = `Failed to verify update for document ${existing._id}`
 					this.logger?.(msg)
-					return {
-						error: {
-							type: "TRANSACTION",
-							message: msg,
-						},
-					}
+					return this.createError("TRANSACTION", msg)
 				}
 
 				return verify
 			} catch (error) {
 				const msg = `Update failed: ${error instanceof Error ? error.message : String(error)}`
 				this.logger?.(msg)
-				return {
-					error: {
-						type: "UNKNOWN",
-						message: msg,
-						original: error,
-					},
-				}
+				return this.createError("UNKNOWN", msg, { original: error })
 			}
 		})
 	}
@@ -639,13 +622,11 @@ export class Collection<T extends Document> {
 				for (const doc of result) {
 					const updatedDoc = { ...doc, ...update }
 					if (!updatedDoc._id) {
-						return {
-							error: {
-								type: "VALIDATION",
-								message: "Updated document must have an _id",
-								field: "_id",
-							},
-						}
+						return this.createError(
+							"VALIDATION",
+							"Updated document must have an _id",
+							{ field: "_id" }
+						)
 					}
 					this.db.put(updatedDoc._id, updatedDoc)
 					modifiedCount++
@@ -653,15 +634,13 @@ export class Collection<T extends Document> {
 
 				return modifiedCount
 			} catch (error) {
-				return {
-					error: {
-						type: "UNKNOWN",
-						message: `Failed to update documents: ${
-							error instanceof Error ? error.message : String(error)
-						}`,
-						original: error,
-					},
-				}
+				return this.createError(
+					"UNKNOWN",
+					`Failed to update documents: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+					{ original: error }
+				)
 			}
 		})
 	}
@@ -669,7 +648,7 @@ export class Collection<T extends Document> {
 	/**
 	 * Removes a single document that matches the filter
 	 */
-	async remove(filter: Filter<T>): Promise<Result<boolean>> {
+	async removeOne(filter: Filter<T>): Promise<Result<boolean>> {
 		this.logger?.(
 			`Starting removeOne operation with filter: ${JSON.stringify(filter)}`
 		)
@@ -698,26 +677,17 @@ export class Collection<T extends Document> {
 				if (verify) {
 					const msg = `Failed to verify removal of document ${doc._id}`
 					this.logger?.(msg)
-					return {
-						error: {
-							type: "TRANSACTION",
-							message: msg,
-						},
-					}
+					return this.createError("TRANSACTION", msg)
 				}
 
 				this.logger?.(`Successfully removed document ${doc._id}`)
 				return true
 			} catch (error) {
-				const msg = `RemoveOne operation failed: ${error instanceof Error ? error.message : String(error)}`
+				const msg = `RemoveOne operation failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`
 				this.logger?.(msg)
-				return {
-					error: {
-						type: "TRANSACTION",
-						message: msg,
-						original: error,
-					},
-				}
+				return this.createError("TRANSACTION", msg, { original: error })
 			}
 		})
 	}
@@ -734,30 +704,31 @@ export class Collection<T extends Document> {
 				let removedCount = 0
 				for (const doc of result) {
 					if (!doc._id) {
-						return {
-							error: {
-								type: "VALIDATION",
-								message: "Document missing _id field",
-								field: "_id",
-							},
-						}
+						return this.createError(
+							"VALIDATION",
+							"Document missing _id field",
+							{ field: "_id" }
+						)
 					}
 					this.db.remove(doc._id)
 					removedCount++
 				}
 				return removedCount
 			} catch (error) {
-				return {
-					error: {
-						type: "TRANSACTION",
-						message: `RemoveMany operation failed: ${error instanceof Error ? error.message : String(error)}`,
-						original: error,
-					},
-				}
+				return this.createError(
+					"TRANSACTION",
+					`RemoveMany operation failed: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+					{ original: error }
+				)
 			}
 		})
 	}
 
+	/**
+	 * Executes an action only if the document doesn't exist
+	 */
 	ifNoExists<R>(id: string, action: () => R): Promise<Result<R>> {
 		try {
 			return this.db
@@ -775,32 +746,33 @@ export class Collection<T extends Document> {
 				.then(
 					(success) => {
 						if (success === ABORT) {
-							return {
-								error: {
-									type: "CONSTRAINT",
-									message: `Operation aborted - document ${id} already exists`,
-									constraint: "unique_key",
-								},
-							}
+							return this.createError(
+								"CONSTRAINT",
+								`Operation aborted - document ${id} already exists`,
+								{ constraint: "unique_key" }
+							)
 						}
 						return success as R
 					},
-					(error) => ({
-						error: {
-							type: "TRANSACTION",
-							message: `Conditional write failed: ${error instanceof Error ? error.message : String(error)}`,
-							original: error,
-						},
-					})
+					(error) =>
+						this.createError(
+							"TRANSACTION",
+							`Conditional write failed: ${
+								error instanceof Error ? error.message : String(error)
+							}`,
+							{ original: error }
+						)
 				)
 		} catch (error) {
-			return Promise.resolve({
-				error: {
-					type: "UNKNOWN",
-					message: `ifNoExists operation failed: ${error instanceof Error ? error.message : String(error)}`,
-					original: error,
-				},
-			})
+			return Promise.resolve(
+				this.createError(
+					"UNKNOWN",
+					`ifNoExists operation failed: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+					{ original: error }
+				)
+			)
 		}
 	}
 
@@ -822,12 +794,12 @@ export class Collection<T extends Document> {
 			if (isError(error)) {
 				return error as Result<R>
 			}
-			return {
-				error: {
-					type: "TRANSACTION",
-					message: `Transaction failed: ${error instanceof Error ? error.message : String(error)}`,
-				},
-			}
+			return this.createError(
+				"TRANSACTION",
+				`Transaction failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			)
 		}
 	}
 }
