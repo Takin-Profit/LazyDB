@@ -3,7 +3,7 @@ name: Publish to npm
 on:
   push:
     tags:
-      - "v*" # Triggers on tags starting with "v"
+      - "v*"
 
 jobs:
   publish:
