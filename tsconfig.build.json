@@ -1,0 +1,17 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "outDir": "./dist",
+        "incremental": false
+    },
+    "exclude": [
+        "src/**/*.test.ts",
+        "src/**/*.test.tsx",
+        "node_modules",
+        "dist",
+        "coverage",
+        ".webpack",
+        ".vscode",
+        "build"
+    ]
+}
