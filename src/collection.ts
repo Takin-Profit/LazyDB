@@ -1,5 +1,11 @@
 import type { Database as LMDBDatabase, RangeIterable } from "lmdb"
-import type { Document, FindOptions, IdGenerator } from "./types.js"
+import {
+	TypedEventEmitter,
+	type CollectionEvents,
+	type Document,
+	type FindOptions,
+	type IdGenerator,
+} from "./types.js"
 import {
 	ConstraintError,
 	TransactionError,
@@ -22,8 +28,21 @@ import {
  * - $gt/$gte/$lt/$lte: Numeric comparisons
  * - $in/$nin: Array inclusion/exclusion
  * - $regex: Regular expression matching
+ *
+ * @template T The document type stored in the collection.
+ * @extends TypedEventEmitter<CollectionEvents<T>>
+ * @event document.inserted Fired when a document is inserted.
+ * @event documents.inserted Fired when multiple documents are inserted.
+ * @event document.updated Fired when a document is updated.
+ * @event documents.updated Fired when multiple documents are updated.
+ * @event document.removed Fired when a document is removed.
+ * @event documents.removed Fired when multiple documents are removed.
+ * @event document.upserted Fired when a document is upserted.
+ * @event documents.upserted Fired when multiple documents are upserted.
  */
-export class Collection<T extends Document> {
+export class Collection<T extends Document> extends TypedEventEmitter<
+	CollectionEvents<T>
+> {
 	private readonly db: LMDBDatabase<T, string>
 	public readonly committed: Promise<boolean>
 	public readonly flushed: Promise<boolean>
@@ -34,6 +53,7 @@ export class Collection<T extends Document> {
 		db: LMDBDatabase<T, string>,
 		options: { idGenerator: IdGenerator; logger?: (msg: string) => void }
 	) {
+		super()
 		this.db = db
 		this.idGenerator = options.idGenerator
 		this.committed = this.db.committed
@@ -189,6 +209,7 @@ export class Collection<T extends Document> {
 	 * @returns {Promise<T>} The inserted document with the `_id` field included.
 	 * @throws {ValidationError} If the document is invalid or cannot be processed.
 	 * @throws {UnknownError} If an unexpected error occurs during the insert operation.
+	 * @fires Collection#document.inserted
 	 */
 	async insert(doc: Omit<T, "_id">): Promise<T> {
 		try {
@@ -202,6 +223,9 @@ export class Collection<T extends Document> {
 			await this.db.put(_id, document)
 
 			this.logger?.(`Document inserted successfully with ID: ${_id}`)
+
+			// Emit the "document.inserted" event
+			this.emit("document.inserted", { document })
 
 			return document
 		} catch (error) {
@@ -226,6 +250,7 @@ export class Collection<T extends Document> {
 	 * @returns {Promise<T[]>} The array of inserted documents with `_id` fields included.
 	 * @throws {TransactionError} If the transaction fails or verification fails.
 	 * @throws {UnknownError} If an unexpected error occurs during the insert operation.
+	 * @fires Collection#documents.inserted
 	 */
 	async insertMany(docs: Array<Omit<T, "_id">>): Promise<T[]> {
 		this.logger?.("Starting insertMany operation")
@@ -254,6 +279,9 @@ export class Collection<T extends Document> {
 					}
 				}
 
+				// Emit the "documents.inserted" event
+				this.emit("documents.inserted", { documents: results })
+
 				return results
 			})
 		} catch (error) {
@@ -278,6 +306,7 @@ export class Collection<T extends Document> {
 	 * @returns {Promise<T>} The inserted or updated document.
 	 * @throws {TransactionError} If the transaction fails.
 	 * @throws {UnknownError} If an unexpected error occurs during the operation.
+	 * @fires Collection#document.upserted
 	 */
 	async upsert(
 		options: Pick<FindOptions<T>, "where">,
@@ -292,6 +321,13 @@ export class Collection<T extends Document> {
 				// Update the document
 				const updated = { ...existing, ...doc }
 				this.db.put(updated._id, updated) // No need to catch; LMDB handles transaction errors
+
+				// Emit the "document.upserted" event with wasInsert = false
+				this.emit("document.upserted", {
+					document: updated,
+					wasInsert: false,
+				})
+
 				return updated
 			}
 
@@ -299,9 +335,17 @@ export class Collection<T extends Document> {
 			const _id = this.idGenerator()
 			const newDocument = { ...doc, _id } as T
 			this.db.put(_id, newDocument) // Insert new document
+
+			// Emit the "document.upserted" event with wasInsert = true
+			this.emit("document.upserted", {
+				document: newDocument,
+				wasInsert: true,
+			})
+
 			return newDocument
 		})
 	}
+
 	/**
 	 * Updates multiple documents or inserts them if they don't exist.
 	 *
@@ -309,12 +353,15 @@ export class Collection<T extends Document> {
 	 * @returns {Promise<T[]>} The array of inserted or updated documents.
 	 * @throws {TransactionError} If the transaction fails.
 	 * @throws {UnknownError} If an unexpected error occurs during the operation.
+	 * @fires Collection#documents.upserted
 	 */
 	async upsertMany(
 		operations: Array<{ where: FindOptions<T>["where"]; doc: Omit<T, "_id"> }>
 	): Promise<T[]> {
 		return await this.transaction(() => {
 			const results: T[] = []
+			let insertCount = 0
+			let updateCount = 0
 
 			for (const op of operations) {
 				// Perform a find operation to locate the existing document
@@ -326,14 +373,23 @@ export class Collection<T extends Document> {
 					const updated = { ...existing, ...op.doc }
 					this.db.put(updated._id, updated)
 					results.push(updated)
+					updateCount++
 				} else {
 					// Insert a new document
 					const _id = this.idGenerator()
 					const newDoc = { ...op.doc, _id } as T
 					this.db.put(_id, newDoc)
 					results.push(newDoc)
+					insertCount++
 				}
 			}
+
+			// Emit the "documents.upserted" event
+			this.emit("documents.upserted", {
+				documents: results,
+				insertCount,
+				updateCount,
+			})
 
 			return results
 		})
@@ -347,6 +403,7 @@ export class Collection<T extends Document> {
 	 * @returns {Promise<T | null>} The updated document, or null if no matching document is found.
 	 * @throws {TransactionError} If the transaction fails.
 	 * @throws {UnknownError} If an unexpected error occurs.
+	 * @fires Collection#document.updated
 	 */
 	async updateOne(
 		options: Pick<FindOptions<T>, "where">,
@@ -375,6 +432,11 @@ export class Collection<T extends Document> {
 				)
 			}
 
+			// Emit the "document.updated" event
+			this.emit("document.updated", { old: existing, new: updatedDoc })
+
+			this.logger?.(`Successfully updated document with ID ${updatedDoc._id}`)
+
 			return updatedDoc
 		})
 	}
@@ -388,6 +450,7 @@ export class Collection<T extends Document> {
 	 * @throws {TransactionError} If the transaction fails.
 	 * @throws {ValidationError} If a document is missing a required `_id` field.
 	 * @throws {UnknownError} If an unexpected error occurs.
+	 * @fires Collection#documents.updated
 	 */
 	async updateMany(
 		options: Pick<FindOptions<T>, "where">,
@@ -430,6 +493,10 @@ export class Collection<T extends Document> {
 			}
 
 			this.logger?.(`Updated ${modifiedCount} documents`)
+
+			// Emit the "documents.updated" event
+			this.emit("documents.updated", { count: modifiedCount })
+
 			return modifiedCount
 		})
 	}
@@ -441,6 +508,7 @@ export class Collection<T extends Document> {
 	 * @returns {Promise<boolean>} True if a document was removed, otherwise false.
 	 * @throws {TransactionError} If the transaction fails.
 	 * @throws {UnknownError} If an unexpected error occurs.
+	 * @fires Collection#document.removed
 	 */
 	async removeOne(options: Pick<FindOptions<T>, "where">): Promise<boolean> {
 		this.logger?.(
@@ -478,6 +546,10 @@ export class Collection<T extends Document> {
 			this.logger?.(
 				`Successfully removed and verified document with ID: ${doc._id}`
 			)
+
+			// Emit the "document.removed" event
+			this.emit("document.removed", { document: doc })
+
 			return true
 		})
 	}
@@ -489,6 +561,7 @@ export class Collection<T extends Document> {
 	 * @returns {Promise<number>} The number of documents removed.
 	 * @throws {TransactionError} If the transaction fails.
 	 * @throws {UnknownError} If an unexpected error occurs.
+	 * @fires Collection#documents.removed
 	 */
 	async removeMany(options: Pick<FindOptions<T>, "where">): Promise<number> {
 		this.logger?.(
@@ -520,6 +593,10 @@ export class Collection<T extends Document> {
 			}
 
 			this.logger?.(`Successfully removed ${removedCount} document(s).`)
+
+			// Emit the "documents.removed" event
+			this.emit("documents.removed", { count: removedCount })
+
 			return removedCount
 		})
 	}

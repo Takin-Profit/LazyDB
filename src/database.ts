@@ -5,6 +5,7 @@ import type {
 	IdGenerator,
 	SafeDatabaseOptions,
 	SafeRootDatabaseOptionsWithPath,
+	DatabaseEvents,
 } from "./types.js"
 import {
 	ConstraintError,
@@ -12,6 +13,7 @@ import {
 	UnknownError,
 	ValidationError,
 } from "./errors.js"
+import { TypedEventEmitter } from "./types.js"
 
 export type DatabaseLogger = (msg: string) => void
 
@@ -20,7 +22,19 @@ export interface DatabaseConfig
 	logger?: DatabaseLogger
 }
 
-export class Database {
+/**
+ * Database class provides a high-level interface for managing LMDB collections.
+ *
+ * @event collection.created Fired when a new collection is created
+ * @event collection.cleared Fired when a collection is cleared
+ * @event collection.dropped Fired when a collection is dropped
+ * @event database.cleared Fired when all collections are cleared
+ * @event database.closed Fired when the database is closed
+ * @event backup.started Fired when a backup operation begins
+ * @event backup.completed Fired when a backup operation completes successfully
+ * @event backup.failed Fired when a backup operation fails
+ */
+export class Database extends TypedEventEmitter<DatabaseEvents> {
 	private readonly rootDb: RootDatabase
 	private readonly collections: Map<string, Collection<Document<unknown>>>
 	private readonly dbs: Map<string, LMDBDatabase>
@@ -28,7 +42,15 @@ export class Database {
 	private readonly idGenerator: IdGenerator
 	private readonly logger?: DatabaseLogger
 
+	/**
+	 * Creates a new Database instance.
+	 *
+	 * @param {string} path The file system path where the database will be stored
+	 * @param {DatabaseConfig} options Configuration options for the database
+	 * @throws {ValidationError} If the database path is not provided
+	 */
 	constructor(path: string, options: DatabaseConfig = {}) {
+		super()
 		if (!path) {
 			throw new ValidationError("Database path is required")
 		}
@@ -55,6 +77,7 @@ export class Database {
 	 * @returns {Collection<Document<T>>} The created or retrieved collection.
 	 * @throws {ConstraintError} If the collection already exists or the max collections limit is reached.
 	 * @throws {UnknownError} If an unexpected error occurs.
+	 * @fires Database#collection.created
 	 */
 	collection<T>(
 		name: string,
@@ -88,6 +111,7 @@ export class Database {
 				logger: this.logger,
 			})
 			this.collections.set(name, collection as Collection<Document<unknown>>)
+			this.emit("collection.created", { name })
 			this.logger?.(`Collection "${name}" created successfully`)
 			return collection
 		} catch (error) {
@@ -103,6 +127,7 @@ export class Database {
 	 * @param {string} name The name of the collection.
 	 * @throws {NotFoundError} If the collection does not exist.
 	 * @throws {UnknownError} If an unexpected error occurs.
+	 * @fires Database#collection.cleared
 	 */
 	async clearCollection(name: string): Promise<void> {
 		this.logger?.(`Clearing collection: ${name}`)
@@ -115,6 +140,7 @@ export class Database {
 			await db.clearAsync()
 			await db.committed
 			await db.flushed
+			this.emit("collection.cleared", { name })
 			this.logger?.(`Collection "${name}" cleared`)
 		} catch (error) {
 			const errorMsg = `Failed to clear collection "${name}": ${error instanceof Error ? error.message : String(error)}`
@@ -129,6 +155,7 @@ export class Database {
 	 * @param {string} name The name of the collection.
 	 * @throws {NotFoundError} If the collection does not exist.
 	 * @throws {UnknownError} If an unexpected error occurs.
+	 * @fires Database#collection.dropped
 	 */
 	async dropCollection(name: string): Promise<void> {
 		this.logger?.(`Dropping collection: ${name}`)
@@ -143,6 +170,7 @@ export class Database {
 			await db.flushed
 			this.dbs.delete(name)
 			this.collections.delete(name)
+			this.emit("collection.dropped", { name })
 			this.logger?.(`Collection "${name}" dropped`)
 		} catch (error) {
 			const errorMsg = `Failed to drop collection "${name}": ${error instanceof Error ? error.message : String(error)}`
@@ -155,6 +183,7 @@ export class Database {
 	 * Clears all collections.
 	 *
 	 * @throws {UnknownError} If an unexpected error occurs.
+	 * @fires Database#database.cleared
 	 */
 	async clearAll(): Promise<void> {
 		this.logger?.("Clearing all collections")
@@ -162,6 +191,7 @@ export class Database {
 			await Promise.all(
 				Array.from(this.dbs.keys()).map((name) => this.clearCollection(name))
 			)
+			this.emit("database.cleared", null)
 			this.logger?.("All collections cleared")
 		} catch (error) {
 			const errorMsg = `Failed to clear all collections: ${error instanceof Error ? error.message : String(error)}`
@@ -174,6 +204,7 @@ export class Database {
 	 * Closes the database and all collections.
 	 *
 	 * @throws {UnknownError} If an unexpected error occurs.
+	 * @fires Database#database.closed
 	 */
 	async close(): Promise<void> {
 		this.logger?.("Closing database")
@@ -187,6 +218,7 @@ export class Database {
 			await this.rootDb.close()
 			this.collections.clear()
 			this.dbs.clear()
+			this.emit("database.closed", null)
 			this.logger?.("Database closed")
 		} catch (error) {
 			const errorMsg = `Failed to close database: ${error instanceof Error ? error.message : String(error)}`
@@ -194,6 +226,7 @@ export class Database {
 			throw new UnknownError(errorMsg, { original: error })
 		}
 	}
+
 	/**
 	 * Creates a snapshot backup of the database at the specified path.
 	 *
@@ -201,6 +234,9 @@ export class Database {
 	 * @param {boolean} [compact=false] Whether to apply compaction while making the backup (slower but smaller).
 	 * @throws {ValidationError} If the backup path is invalid or not provided.
 	 * @throws {UnknownError} If an unexpected error occurs during the backup operation.
+	 * @fires Database#backup.started
+	 * @fires Database#backup.completed
+	 * @fires Database#backup.failed
 	 */
 	async backup(path: string, compact = false): Promise<void> {
 		if (!path) {
@@ -208,13 +244,16 @@ export class Database {
 		}
 
 		this.logger?.(`Starting backup to path: ${path} with compact: ${compact}`)
+		this.emit("backup.started", { path, compact })
 
 		try {
 			await this.rootDb.backup(path, compact)
+			this.emit("backup.completed", { path, compact })
 			this.logger?.(`Backup completed successfully to path: ${path}`)
 		} catch (error) {
 			const errorMsg = `Backup operation failed: ${error instanceof Error ? error.message : String(error)}`
 			this.logger?.(errorMsg)
+			this.emit("backup.failed", { path, error: error as Error })
 			throw new UnknownError(errorMsg, { original: error })
 		}
 	}

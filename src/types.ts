@@ -56,3 +56,91 @@ export interface OperationStats {
 	modified?: number
 	timestamp: number
 }
+
+// Event types for database operations
+export type DatabaseEvents = {
+	[K in "collection.created" | "collection.cleared" | "collection.dropped"]: {
+		name: string
+	}
+} & {
+	[K in "backup.started" | "backup.completed"]: {
+		path: string
+		compact: boolean
+	}
+} & {
+	"backup.failed": { path: string; error: Error }
+	"database.cleared": null
+	"database.closed": null
+}
+
+export type CollectionEvents<T> = {
+	[K in
+		| "document.inserted"
+		| "document.updated"
+		| "document.removed"]: K extends "document.inserted"
+		? { document: T }
+		: K extends "document.updated"
+			? { old: T | null; new: T }
+			: { document: T }
+} & {
+	[K in
+		| "documents.inserted"
+		| "documents.updated"
+		| "documents.removed"]: K extends "documents.inserted"
+		? { documents: T[] }
+		: K extends "documents.updated"
+			? { count: number }
+			: { count: number }
+} & {
+	[K in "document.upserted"]: { document: T; wasInsert: boolean }
+} & {
+	[K in "documents.upserted"]: {
+		documents: T[]
+		insertCount: number
+		updateCount: number
+	}
+}
+
+/**
+ * A generic event emitter class for managing typed events and listeners.
+ *
+ * This class allows for the registration of event listeners for specific event types, ensuring type safety through generics. It provides methods to add listeners and emit events, invoking all registered listeners for a given event with the appropriate data type.
+ *
+ * @template Events - A record type defining the event names and their corresponding data types.
+ */
+export class TypedEventEmitter<Events extends Record<string, unknown>> {
+	private readonly listeners: Map<
+		keyof Events,
+		Array<(data: Events[keyof Events]) => void>
+	> = new Map()
+
+	/**
+	 * Registers a listener for a specific event type.
+	 *
+	 * @param {E} event - The name of the event to listen for.
+	 * @param {(data: Events[E]) => void} listener - The callback function to invoke when the event is emitted, receiving the event data.
+	 */
+	on<E extends keyof Events>(
+		event: E,
+		listener: (data: Events[E]) => void
+	): void {
+		const handlers = this.listeners.get(event) || []
+		handlers.push(listener as (data: Events[keyof Events]) => void)
+		this.listeners.set(event, handlers)
+	}
+
+	/**
+	 * Emits an event, invoking all registered listeners for that event type.
+	 *
+	 * @param {E} event - The name of the event to emit.
+	 * @param {Events[E]} data - The data to pass to the event listeners.
+	 */
+	protected emit<E extends keyof Events>(event: E, data: Events[E]): void {
+		const handlers = this.listeners.get(event)
+		if (handlers) {
+			for (const handler of handlers) {
+				handler(data)
+			}
+		}
+	}
+}
