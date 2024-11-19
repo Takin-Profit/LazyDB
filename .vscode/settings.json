@@ -3,6 +3,7 @@
         "lazydb",
         "lmdb",
         "msgpack",
+        "pkgroll",
         "takinprofit",
         "upserted"
     ],

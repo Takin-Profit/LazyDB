@@ -1,7 +1,7 @@
 {
   "name": "@takinprofit/lazydb",
   "version": "1.0.0",
-  "description": "A modern Node.js database library with advanced querying capabilities.",
+  "description": "A modern Node.js embedded database library with advanced querying capabilities.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -19,12 +19,15 @@
   "scripts": {
     "build": "pkgroll --tsconfig tsconfig.build.json",
     "test": "tsx --test src/**/*.test.ts",
-    "clean": "pnpm rimraf dist coverage"
+    "clean": "pnpm rimraf dist coverage",
+    "prepublishOnly": "pnpm build"
   },
   "keywords": [
     "database",
     "lmdb",
-    "typescript"
+    "typescript",
+    "modern",
+    "query"
   ],
   "author": "Your Name",
   "license": "MIT",
@@ -46,5 +49,19 @@
   "bugs": {
     "url": "https://github.com/Takin-Profit/LazyDB/issues"
   },
-  "homepage": "https://github.com/Takin-Profit/LazyDB"
+  "homepage": "https://github.com/Takin-Profit/LazyDB",
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/your_username"
+  }
 }
