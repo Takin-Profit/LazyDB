@@ -38,6 +38,10 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 	private readonly logger?: (msg: string) => void
 
 	private readonly name: string
+
+	get rootDb(): LMDBDatabase<T, string> {
+		return this.db
+	}
 	constructor(
 		db: LMDBDatabase<T, string>,
 		options: {

@@ -31,6 +31,7 @@ LazyDB is a high-performance, type-safe document database built on top of LMDB (
   - [Database Operations](#database-operations)
     - [Initialization](#initialization)
     - [Collection Management](#collection-management)
+      - [Collection Options](#collection-options)
   - [Collections](#collections)
     - [Basic Operations](#basic-operations)
     - [Upsert Operations](#upsert-operations)
@@ -126,44 +127,133 @@ await db.close()
 
 ### Initialization
 
+LazyDB supports all LMDB options except `dupSort` and `maxDbs` (which is replaced with `maxCollections`). The configuration interface extends LMDB's options with additional LazyDB-specific features.
+
 ```typescript
 import { Database } from '@takinprofit/lazydb'
 
 const db = new Database('./db-path', {
-  compression: true,          // Enable LZ4 compression
-  maxCollections: 10,         // Maximum number of collections
-  pageSize: 8192,            // Database page size
+  // LazyDB-specific options
+  maxCollections: 10,        // Maximum number of collections (replaces LMDB's maxDbs)
+  idGenerator: () => uuid(), // Custom ID generation function
+  logger: console.log,       // Optional logging function
+
+  // LMDB options (inherited from lmdb-js)
+  compression: true,         // Enable LZ4 compression
+  pageSize: 8192,           // Database page size
   overlappingSync: true,     // Enable overlapping sync for better performance
-  logger: console.log        // Optional logging function
+  encoding: 'msgpack',       // Value encoding format
+  cache: true,              // Enable caching
+  useVersions: false,       // Enable document versioning
+
+  // Additional LMDB options
+  mapSize: 2 * 1024 * 1024 * 1024,  // 2GB initial map size
+  maxReaders: 126,                   // Maximum concurrent readers
+  noMemInit: true,                   // Performance optimization for writes
+  eventTurnBatching: true,          // Batch writes in same event turn
+  commitDelay: 0,                    // Delay before committing writes
+  encryptionKey: 'your-32-byte-key', // Enable encryption
+  // ... and many more LMDB options
 })
+```
+
+For a complete list of supported options, refer to the [LMDB.js documentation](https://github.com/kriszyp/lmdb-js?tab=readme-ov-file#db-options). LazyDB supports all LMDB options except:
+
+- `dupSort` (not supported)
+- `maxDbs` (use `maxCollections` instead)
+
+LazyDB adds the following options:
+
+- `maxCollections`: Maximum number of collections (replaces LMDB's `maxDbs`)
+- `idGenerator`: Custom function for generating document IDs
+- `logger`: Optional logging function for database operations
+
+The configuration interface extends LMDB's options while providing type safety:
+
+```typescript
+export interface DatabaseConfig extends Partial<SafeRootDatabaseOptionsWithPath> {
+  logger?: DatabaseLogger
+}
+
+// Removes unsupported LMDB options and adds LazyDB-specific ones
+export type SafeRootDatabaseOptionsWithPath = Omit<
+  RootDatabaseOptionsWithPath,
+  "dupSort" | "maxDbs"
+> & {
+  maxCollections?: number
+  idGenerator?: IdGenerator
+}
 ```
 
 ### Collection Management
 
+Collections in LazyDB can be managed through several methods, and each collection can be configured with its own options.
+
 ```typescript
-// Create/get a collection
-const users = db.collection<User>('users')
+// Create/get a collection with options
+const users = db.collection<User>('users', {
+  // Collection-specific options (inherited from LMDB)
+  encoding: 'msgpack',           // Value encoding format
+  compression: true,             // Enable LZ4 compression
+  cache: true,                   // Enable caching
+  useVersions: false,           // Enable document versioning
+  keyEncoding: 'ordered-binary', // Key encoding format
+  strictAsyncOrder: false,      // Async operation ordering
+  sharedStructuresKey: Symbol.for('structures'), // For msgpack/cbor encoding
 
-// Clear a collection
-await db.clearCollection('users')
+  // LazyDB-specific options
+  idGenerator: () => uuid(),    // Override default ID generator
+})
 
-// Drop a collection
-await db.dropCollection('users')
-
-// Close a specific collection
-await users.close() // Using collection instance
+// Collection operations
+await db.clearCollection('users')              // Clear all documents
+await db.dropCollection('users')               // Remove the collection
+await users.close()                            // Close collection instance
 // or
-await db.closeCollection('users') // Using database instance
+await db.closeCollection('users')              // Close collection from database
 
-// Clear all collections
-await db.clearAll()
-
-// Create a backup
-await db.backup('./backup-path', true) // Second parameter enables compaction
-
-// Close the database
-await db.close()
+// Database-wide operations
+await db.clearAll()                            // Clear all collections
+await db.backup('./backup-path', true)         // Create backup (with compaction)
+await db.close()                               // Close the database
 ```
+
+#### Collection Options
+
+When creating a collection with `db.collection<T>(name, options?)`, the following options are supported:
+
+```typescript
+interface DatabaseOptions {
+  // Encoding options
+  encoding?: 'msgpack' | 'json' | 'string' | 'binary' | 'ordered-binary'
+  keyEncoding?: 'uint32' | 'binary' | 'ordered-binary'
+  sharedStructuresKey?: Key              // For msgpack/cbor optimization
+
+  // Performance options
+  cache?: boolean | object               // Enable/configure caching
+  compression?: boolean | CompressionOptions
+  strictAsyncOrder?: boolean            // Order of async operations
+
+  // Feature flags
+  useVersions?: boolean                 // Enable document versioning
+}
+
+// LazyDB collection options exclude dupSort and add idGenerator
+type SafeDatabaseOptions = Omit<DatabaseOptions, "dupSort"> & {
+  idGenerator?: IdGenerator            // Custom ID generation
+}
+```
+
+All LMDB database options are supported except `dupSort`. Each collection can override the database's default settings for:
+
+- Document and key encoding
+- Compression settings
+- Caching behavior
+- Version tracking
+- ID generation
+- Async operation ordering
+
+For detailed information about these options, see the [LMDB.js documentation](https://github.com/kriszyp/lmdb-js?tab=readme-ov-file#db-options).
 
 ## Collections
 
@@ -551,7 +641,6 @@ const userReports = users.find({
 > - `mapError` can be used for both error recovery and iteration termination
 
 For more details about the underlying LMDB range operations, refer to the [LMDB.js documentation](https://github.com/kriszyp/lmdb-js?tab=readme-ov-file#dbgetrangeoptions-rangeoptions-iterable-key-value-buffer-).
-
 
 ## Transactions
 
