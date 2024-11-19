@@ -107,6 +107,7 @@ export class Database extends TypedEventEmitter<DatabaseEvents> {
 
 			const db = this.dbs.get(name) as LMDBDatabase<Document<T>, string>
 			const collection = new Collection<Document<T>>(db, {
+				name,
 				idGenerator: options?.idGenerator ?? this.idGenerator,
 				logger: this.logger,
 			})
@@ -254,6 +255,36 @@ export class Database extends TypedEventEmitter<DatabaseEvents> {
 			const errorMsg = `Backup operation failed: ${error instanceof Error ? error.message : String(error)}`
 			this.logger?.(errorMsg)
 			this.emit("backup.failed", { path, error: error as Error })
+			throw new UnknownError(errorMsg, { original: error })
+		}
+	}
+
+	/**
+	 * Closes a specific collection.
+	 *
+	 * @param {string} name The name of the collection to close.
+	 * @returns {Promise<void>} Resolves when the collection is successfully closed.
+	 * @throws {NotFoundError} If the collection does not exist.
+	 * @throws {UnknownError} If an unexpected error occurs during the operation.
+	 * @fires Database#collection.closed
+	 */
+	async closeCollection(name: string): Promise<void> {
+		this.logger?.(`Closing collection: ${name}`)
+		const db = this.dbs.get(name)
+		if (!db) {
+			throw new NotFoundError(`Collection "${name}" not found`)
+		}
+
+		try {
+			await db.committed
+			await db.flushed
+			this.dbs.delete(name)
+			this.collections.delete(name)
+			this.emit("collection.closed", { name })
+			this.logger?.(`Collection "${name}" successfully closed.`)
+		} catch (error) {
+			const errorMsg = `Failed to close collection "${name}": ${error instanceof Error ? error.message : String(error)}`
+			this.logger?.(errorMsg)
 			throw new UnknownError(errorMsg, { original: error })
 		}
 	}

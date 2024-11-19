@@ -26,9 +26,10 @@ import {
  * @event documents.removed Fired when multiple documents are removed.
  * @event document.upserted Fired when a document is upserted.
  * @event documents.upserted Fired when multiple documents are upserted.
+ * @event collection.closed Fired when the collection is closed.
  */
 export class Collection<T extends Document> extends TypedEventEmitter<
-	CollectionEvents<T>
+	CollectionEvents<T> & { "collection.closed": { name: string } }
 > {
 	private readonly db: LMDBDatabase<T, string>
 	public readonly committed: Promise<boolean>
@@ -36,12 +37,18 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 	private readonly idGenerator: IdGenerator
 	private readonly logger?: (msg: string) => void
 
+	private readonly name: string
 	constructor(
 		db: LMDBDatabase<T, string>,
-		options: { idGenerator: IdGenerator; logger?: (msg: string) => void }
+		options: {
+			name: string
+			idGenerator: IdGenerator
+			logger?: (msg: string) => void
+		}
 	) {
 		super()
 		this.db = db
+		this.name = options.name
 		this.idGenerator = options.idGenerator
 		this.committed = this.db.committed
 		this.flushed = this.db.flushed
@@ -674,6 +681,26 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 				error instanceof Error ? error.message : String(error)
 			}`
 
+			this.logger?.(errorMsg)
+			throw new UnknownError(errorMsg, { original: error })
+		}
+	}
+
+	/**
+	 * Closes the collection and releases associated resources.
+	 *
+	 * @returns {Promise<void>} Resolves when the collection has been closed.
+	 * @throws {UnknownError} If an unexpected error occurs during the close operation.
+	 * @fires Collection#collection.closed
+	 */
+	async close(): Promise<void> {
+		this.logger?.(`Closing collection: ${this.name}`)
+		try {
+			await this.db.close()
+			this.emit("collection.closed", { name: this.name })
+			this.logger?.(`Collection "${this.name}" closed successfully.`)
+		} catch (error) {
+			const errorMsg = `Failed to close collection "${this.name}": ${error instanceof Error ? error.message : String(error)}`
 			this.logger?.(errorMsg)
 			throw new UnknownError(errorMsg, { original: error })
 		}

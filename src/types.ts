@@ -59,7 +59,11 @@ export interface OperationStats {
 
 // Event types for database operations
 export type DatabaseEvents = {
-	[K in "collection.created" | "collection.cleared" | "collection.dropped"]: {
+	[K in
+		| "collection.created"
+		| "collection.cleared"
+		| "collection.dropped"
+		| "collection.closed"]: {
 		name: string
 	}
 } & {

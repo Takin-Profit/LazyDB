@@ -35,7 +35,10 @@ LazyDB is a high-performance, type-safe document database built on top of LMDB (
     - [Basic Operations](#basic-operations)
     - [Upsert Operations](#upsert-operations)
     - [RangeIterable Operations](#rangeiterable-operations)
-    - [Advanced Query Patterns](#advanced-query-patterns)
+      - [Available Options and Types](#available-options-and-types)
+      - [Basic Query Patterns](#basic-query-patterns)
+      - [Asynchronous Operations and Error Handling](#asynchronous-operations-and-error-handling)
+      - [Advanced Query Patterns](#advanced-query-patterns)
   - [Transactions](#transactions)
   - [Events](#events)
     - [Database Events](#database-events)
@@ -76,12 +79,12 @@ pnpm add @takinprofit/lazydb
 import { Database, Document } from '@takinprofit/lazydb'
 
 // Define your document type
-interface User extends Document {
+type User = Document<{
   name: string
   email: string
   age: number
   active: boolean
-}
+}>
 
 // Initialize the database
 const db = new Database('./my-database', {
@@ -110,7 +113,12 @@ for (const user of activeUsers) {
   console.log(user.name)
 }
 
-// Clean up
+// Clean up specific collection
+await users.close() // Close single collection
+// or
+await db.closeCollection('users') // Close collection from database instance
+
+// Clean up entire database
 await db.close()
 ```
 
@@ -141,6 +149,11 @@ await db.clearCollection('users')
 
 // Drop a collection
 await db.dropCollection('users')
+
+// Close a specific collection
+await users.close() // Using collection instance
+// or
+await db.closeCollection('users') // Using database instance
 
 // Clear all collections
 await db.clearAll()
@@ -243,136 +256,302 @@ const largeDataset = users.find({
 
 ### RangeIterable Operations
 
-The `RangeIterable` class provides several methods for working with query results. These operations are lazy, meaning they're only executed when the results are actually consumed.
+The `RangeIterable` class combines LMDB's powerful range queries with a flexible method chaining API. All operations are lazy and only execute when consumed via a terminal operation (`forEach`, `asArray`, or iteration).
+
+#### Available Options and Types
 
 ```typescript
-// Basic mapping and filtering
-const activeUserNames = users.find()
-  .filter(user => user.active)
-  .map(user => user.name)
-  .asArray
+// Main query options combining LMDB range options with where clause
+interface FindOptions<T> extends RangeOptions {
+  // Filter function for documents
+  where?: (entry: T) => boolean
 
-// Asynchronous mapping
-const userDetailsAsync = users.find()
-  .map(async user => {
-    const details = await fetchExternalDetails(user.id)
-    return {
-      ...user,
-      details
-    }
-  })
-
-// Process async results
-for await (const user of userDetailsAsync) {
-  console.log(user.details)
+  // Inherited from LMDB RangeOptions
+  start?: Key              // Starting key
+  end?: Key               // Ending key
+  reverse?: boolean       // Reverse traversal
+  limit?: number         // Maximum entries to read
+  offset?: number        // Number of entries to skip
+  versions?: boolean     // Include version numbers
+  snapshot?: boolean     // Use database snapshot (default: true)
 }
 
-// Asynchronous filtering
-const verifiedUsers = users.find()
-  .filter(async user => {
-    const isValid = await validateUserExternally(user)
-    return isValid
-  })
-
-// Combine sync and async operations
-const processedUsers = users.find()
-  .filter(user => user.active)
-  .map(async user => {
-    const enriched = await enrichUserData(user)
-    return enriched
-  })
-  .filter(async user => {
-    const valid = await validateEnrichedUser(user)
-    return valid
-  })
-
-// Error handling with mapError
-const safeUserData = users.find()
-  .map(user => {
-    if (!user.email) throw new Error('Missing email')
-    if (!user.age) throw new Error('Missing age')
-    return {
-      email: user.email.toLowerCase(),
-      age: user.age
-    }
-  })
-  .mapError(error => {
-    console.error('Processing error:', error.message)
-    // Return a default value to continue iteration
-    return { email: 'invalid@example.com', age: 0 }
-  })
-
-// Terminate iteration on specific errors
-const validatedUsers = users.find()
-  .map(user => {
-    if (!user.email) throw new Error('MISSING_EMAIL')
-    if (!user.age) throw new Error('MISSING_AGE')
-    return user
-  })
-  .mapError(error => {
-    if (error.message === 'MISSING_EMAIL') {
-      throw error // Terminate iteration
-    }
-    // Continue iteration with default for other errors
-    return { email: 'unknown@example.com', age: 0 }
-  })
-
-// Pagination using slice
-const pageSize = 10
-const pageNumber = 1
-const pagedUsers = users.find()
-  .filter(user => user.active)
-  .slice(pageNumber * pageSize, (pageNumber + 1) * pageSize)
-  .asArray
-
-// Chaining with error handling
-const processedData = users.find()
-  .filter(async user => await isEligible(user))
-  .map(async user => {
-    const enriched = await enrichUserData(user)
-    if (!enriched) throw new Error('Enrichment failed')
-    return enriched
-  })
-  .mapError(error => {
-    logger.error('Processing failed:', error)
-    return null
-  })
-  .filter(result => result !== null)
-  .asArray
+// Available methods on RangeIterable
+interface RangeIterable<T> {
+  map<U>(callback: (entry: T) => U | Promise<U>): RangeIterable<U>
+  flatMap<U>(callback: (entry: T) => U[] | Promise<U[]>): RangeIterable<U>
+  filter(callback: (entry: T) => boolean | Promise<boolean>): RangeIterable<T>
+  slice(start: number, end: number): RangeIterable<T>
+  forEach(callback: (entry: T) => void): void  // Terminal operation
+  mapError<U>(callback: (error: Error) => U): RangeIterable<U>
+  asArray: T[]  // Terminal operation
+}
 ```
 
-### Advanced Query Patterns
+#### Basic Query Patterns
 
 ```typescript
-// Combining multiple conditions with async validation
-const complexQuery = users.find()
-  .filter(user => user.age >= 18 && user.status === 'active')
+interface FindOptions<T> extends RangeOptions {
+  where?: (entry: T) => boolean
+
+  // From LMDB RangeOptions:
+  start?: Key        // Starting key - any valid key type (primitive or array of primitives)
+  end?: Key         // Ending key - any valid key type (primitive or array of primitives)
+  reverse?: boolean // Reverse traversal through keys (false by default)
+  limit?: number    // Maximum number of entries to read (no limit by default)
+  offset?: number   // Number of entries to skip (starts at 0 by default)
+  versions?: boolean // Include version numbers in returned entries (false by default)
+  snapshot?: boolean // Use database snapshot for iteration (true by default)
+}
+
+// Example using range options
+const userRange = users.find({
+  start: 100,              // Start at key 100
+  end: 200,               // End at key 200
+  reverse: false,         // Normal order
+  limit: 50,              // Read maximum 50 entries
+  offset: 10,             // Skip first 10 entries
+  where: user => user.active && user.age >= 21
+})
+
+// Example with primitive array keys
+const complexRange = users.find({
+  start: ['user', 1000],
+  end: ['user', 2000],
+  where: user => user.active
+})
+
+Keys can be any JS primitive (string, number, boolean, symbol), an array of primitives, or a Buffer. The ordering follows these rules (from LMDB.js documentation):
+
+null                    // lowest possible value
+Symbol.for('example')   // symbols
+false
+true
+-10                     // negative numbers supported
+-1.1                    // decimals supported
+400
+3E10
+'Hello'
+['Hello', 'World']
+'World'
+'hello'
+['hello', 1, 'world']
+['hello', 'world']
+Buffer.from([255])      // buffers are used directly
+
+
+
+// Chain operations after where clause
+const processedUsers = users.find({
+  where: user => user.status === 'active',
+  limit: 1000
+})
+  .map(user => ({
+    ...user,
+    fullName: `${user.firstName} ${user.lastName}`,
+    age: calculateAge(user.birthDate)
+  }))
+  .filter(user => user.age >= 18)
+  .asArray
+
+// Combining where clauses with flatMap
+const userConnections = users.find({
+  where: user => user.connectionCount > 0
+})
+  .flatMap(async user => {
+    const connections = await fetchUserConnections(user._id)
+    return connections.map(conn => ({
+      userId: user._id,
+      connectionId: conn.id,
+      type: conn.type
+    }))
+  })
+
+// Complex filtering with multiple conditions
+const eligibleUsers = users.find({
+  where: user => {
+    const hasRequiredFields = user.email && user.phoneNumber
+    const isVerified = user.emailVerified && user.phoneVerified
+    const meetsAgeRequirement = user.age >= 21
+    const hasActiveSubscription =
+      user.subscription?.status === 'active' &&
+      user.subscription?.expiryDate > new Date()
+
+    return hasRequiredFields &&
+           isVerified &&
+           meetsAgeRequirement &&
+           hasActiveSubscription
+  }
+})
+```
+
+#### Asynchronous Operations and Error Handling
+
+```typescript
+// Async mapping with error handling
+const enrichedUsers = users.find({
+  where: user => user.requiresEnrichment
+})
   .map(async user => {
-    const [verificationStatus, externalData] = await Promise.all([
-      verifyUser(user),
-      fetchExternalData(user.id)
+    try {
+      const [profile, preferences, metrics] = await Promise.all([
+        fetchUserProfile(user._id),
+        fetchUserPreferences(user._id),
+        calculateUserMetrics(user._id)
+      ])
+
+      return {
+        ...user,
+        profile,
+        preferences,
+        metrics
+      }
+    } catch (error) {
+      throw new Error(`Enrichment failed for ${user._id}: ${error.message}`)
+    }
+  })
+  .mapError(error => {
+    logger.error('User enrichment failed:', error)
+    return null
+  })
+  .filter(user => user !== null)
+
+// Process async results with batching
+const batchSize = 100
+for await (const user of enrichedUsers) {
+  await processBatch(user)
+}
+
+// Complex error handling with different strategies
+const validatedUsers = users.find({
+  where: user => user.status === 'pending_validation'
+})
+  .map(async user => {
+    const validationResult = await validateUser(user)
+    if (!validationResult.success) {
+      throw new Error(`VALIDATION_${validationResult.code}`)
+    }
+    return {
+      ...user,
+      validatedAt: new Date(),
+      validatedBy: 'system'
+    }
+  })
+  .mapError(error => {
+    if (error.message.startsWith('VALIDATION_')) {
+      const code = error.message.split('_')[1]
+      switch (code) {
+        case 'INVALID_EMAIL':
+          return { status: 'invalid_email', retryable: true }
+        case 'BLOCKED':
+          throw error // Terminate iteration
+        default:
+          return { status: 'unknown_error', retryable: false }
+      }
+    }
+    return { status: 'system_error', retryable: true }
+  })
+```
+
+#### Advanced Query Patterns
+
+```typescript
+// Composite queries with multiple async operations
+const userAnalytics = users.find({
+  where: user => user.analyticsEnabled,
+  limit: 1000
+})
+  .map(async user => {
+    // Parallel fetch of user data
+    const [
+      activityMetrics,
+      engagementScore,
+      riskAnalysis
+    ] = await Promise.all([
+      fetchActivityMetrics(user._id),
+      calculateEngagementScore(user._id),
+      performRiskAnalysis(user._id)
     ])
 
     return {
-      ...user,
-      verified: verificationStatus,
-      externalData
+      userId: user._id,
+      metrics: activityMetrics,
+      engagement: engagementScore,
+      risk: riskAnalysis
     }
   })
-  .filter(user => user.verified)
+  .filter(async data => {
+    const isHighValue = data.engagement.score > 75
+    const isLowRisk = data.risk.level === 'low'
+    const isActive = await checkUserActivity(data.userId)
+
+    return isHighValue && isLowRisk && isActive
+  })
   .mapError(error => {
-    logger.error('Query processing error:', error)
+    logger.error('Analytics processing failed:', error)
     return null
   })
 
-// Process results in chunks
-const batchSize = 100
-for await (const user of complexQuery) {
-  if (user) {
-    await processBatch(user)
-  }
+// Pagination with complex sorting
+function getUserPage(pageNumber: number, pageSize: number) {
+  return users.find({
+    where: user => user.active,
+    reverse: true,  // Latest first
+    offset: pageNumber * pageSize,
+    limit: pageSize
+  })
+    .map(async user => {
+      const lastActivity = await getLastActivity(user._id)
+      return {
+        ...user,
+        lastActivity
+      }
+    })
+    .filter(user => user.lastActivity > dayjs().subtract(30, 'days').toDate())
+    .asArray
 }
+
+// Data transformation with validation
+const userReports = users.find({
+  where: user => user.reportingEnabled
+})
+  .flatMap(async user => {
+    const reports = await fetchUserReports(user._id)
+    return reports.map(report => ({
+      userId: user._id,
+      reportId: report.id,
+      data: report.data,
+      timestamp: report.createdAt
+    }))
+  })
+  .map(async report => {
+    const validated = await validateReport(report)
+    if (!validated.success) {
+      throw new Error(`INVALID_REPORT:${report.reportId}`)
+    }
+    return validated.data
+  })
+  .mapError(error => {
+    if (error.message.startsWith('INVALID_REPORT:')) {
+      const reportId = error.message.split(':')[1]
+      logger.warn(`Skipping invalid report: ${reportId}`)
+      return null
+    }
+    throw error // Rethrow unexpected errors
+  })
+  .filter(report => report !== null)
 ```
+
+> **Important Notes:**
+>
+> - `forEach` and `asArray` are terminal operations that consume the iterator
+> - Setting `snapshot: false` allows LMDB to collect freed space but may not provide a consistent view
+> - Async operations in `map` and `filter` create async iterables
+> - For large datasets, consider batching and pagination
+> - `mapError` can be used for both error recovery and iteration termination
+
+For more details about the underlying LMDB range operations, refer to the [LMDB.js documentation](https://github.com/kriszyp/lmdb-js?tab=readme-ov-file#dbgetrangeoptions-rangeoptions-iterable-key-value-buffer-).
+
 
 ## Transactions
 
@@ -478,6 +657,16 @@ users.on('document.upserted', ({ document, wasInsert }) => {
 
 users.on('documents.upserted', ({ documents, insertCount, updateCount }) => {
   console.log(`Upserted ${documents.length} documents (${insertCount} inserts, ${updateCount} updates)`)
+})
+
+// Listen for collection close events on the database
+db.on('collection.closed', ({ name }) => {
+  console.log(`Collection ${name} was closed`)
+})
+
+// Listen for close events on the collection
+users.on('collection.closed', ({ name }) => {
+  console.log(`Collection ${name} was closed`)
 })
 ```
 
