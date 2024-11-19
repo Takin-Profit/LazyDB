@@ -14,20 +14,7 @@ import {
 } from "./errors.js"
 
 /**
- * Collection class provides a MongoDB-like interface for LMDB
- *
- * Supported operations:
- * - find/findOne: Query documents with MongoDB-style filters
- * - insert/insertMany: Add new documents
- * - updateOne/updateMany: Modify existing documents
- * - removeOne/removeMany: Delete documents
- * - upsert/upsertMany: Insert or update documents
- *
- * Query operators:
- * - $eq/$ne: Equality/inequality
- * - $gt/$gte/$lt/$lte: Numeric comparisons
- * - $in/$nin: Array inclusion/exclusion
- * - $regex: Regular expression matching
+
  *
  * @template T The document type stored in the collection.
  * @extends TypedEventEmitter<CollectionEvents<T>>
