@@ -4,8 +4,9 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
-
+    "lib": [
+      "ES2022"
+    ],
     // Strict Type Checking
     "strict": true,
     "noImplicitAny": true,
@@ -15,18 +16,15 @@
     "strictPropertyInitialization": true,
     "noImplicitThis": true,
     "alwaysStrict": true,
-
     // Relaxed Type Checking Options
     "exactOptionalPropertyTypes": false, // Disable strict optional property checking
     "noUncheckedIndexedAccess": false, // Disable indexed access checks
-
     // Additional Type Checking
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
-
     // Module Resolution and Output
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -38,13 +36,15 @@
     "declarationMap": true,
     "outDir": "./dist",
     "rootDir": "./src",
-
     // Project Options
     "removeComments": false,
     "preserveConstEnums": true,
     "incremental": true
   },
-  "include": ["src/**/*"],
+  "include": [
+    "src/**/*",
+    "src/collection.test.ts"
+  ],
   "exclude": [
     "node_modules",
     "dist",

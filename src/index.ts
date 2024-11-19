@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // Export types
-export {
+export type {
 	Document,
 	FindOptions,
 	SafeDatabaseOptions,
@@ -22,7 +22,6 @@ export {
 	ValidationError,
 	ConstraintError,
 	TransactionError,
-	NotFoundError,
 	IOError,
 	CorruptionError,
 	UpdateFailedError,

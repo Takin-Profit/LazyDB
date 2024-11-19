@@ -51,11 +51,9 @@ export class Collection<T extends Document> {
 	get(id: string): T | null {
 		try {
 			const value = this.db.get(id)
-			return value ?? null
+			return value ?? null // Return null if undefined
 		} catch (error) {
-			const errorMsg = `Get operation failed for document ID ${id}: ${
-				error instanceof Error ? error.message : String(error)
-			}`
+			const errorMsg = `Get operation failed for document ID ${id}: ${error instanceof Error ? error.message : String(error)}`
 			this.logger?.(errorMsg)
 			throw new UnknownError(errorMsg, { original: error })
 		}
@@ -73,9 +71,7 @@ export class Collection<T extends Document> {
 		try {
 			return version ? this.db.doesExist(id, version) : this.db.doesExist(id)
 		} catch (error) {
-			const errorMsg = `Existence check failed for document ID ${id}: ${
-				error instanceof Error ? error.message : String(error)
-			}`
+			const errorMsg = `Existence check failed for document ID ${id}: ${error instanceof Error ? error.message : String(error)}`
 			this.logger?.(errorMsg)
 			throw new UnknownError(errorMsg, { original: error })
 		}
@@ -92,9 +88,7 @@ export class Collection<T extends Document> {
 		try {
 			await this.db.prefetch(ids)
 		} catch (error) {
-			const errorMsg = `Prefetch operation failed for document IDs ${JSON.stringify(
-				ids
-			)}: ${error instanceof Error ? error.message : String(error)}`
+			const errorMsg = `Prefetch operation failed for document IDs ${JSON.stringify(ids)}: ${error instanceof Error ? error.message : String(error)}`
 			this.logger?.(errorMsg)
 			throw new UnknownError(errorMsg, { original: error })
 		}
@@ -112,9 +106,7 @@ export class Collection<T extends Document> {
 			const values = await this.db.getMany(ids)
 			return values.map((value) => value ?? null)
 		} catch (error) {
-			const errorMsg = `GetMany operation failed for document IDs ${JSON.stringify(
-				ids
-			)}: ${error instanceof Error ? error.message : String(error)}`
+			const errorMsg = `GetMany operation failed for document IDs ${JSON.stringify(ids)}: ${error instanceof Error ? error.message : String(error)}`
 			this.logger?.(errorMsg)
 			throw new UnknownError(errorMsg, { original: error })
 		}
@@ -219,6 +211,7 @@ export class Collection<T extends Document> {
 			this.logger?.(errorMsg)
 
 			if (error instanceof TypeError || error instanceof SyntaxError) {
+				// Create a ValidationError without fields since they're irrelevant here
 				throw new ValidationError(errorMsg, { original: error })
 			}
 
@@ -459,30 +452,32 @@ export class Collection<T extends Document> {
 			const [doc] = range.asArray
 
 			if (!doc) {
-				this.logger?.("No document found to remove")
+				this.logger?.("No document found to match the given filter.")
 				return false // No document to remove
 			}
 
-			this.logger?.(`Attempting to remove document with ID: ${doc._id}`)
+			this.logger?.(`Found document with ID: ${doc._id}. Preparing to remove.`)
 
 			try {
 				this.db.remove(doc._id)
+				this.logger?.(`Document with ID ${doc._id} removed from the database.`)
 			} catch (error) {
-				throw new TransactionError(
-					`Failed to remove document with ID ${doc._id}`,
-					{ original: error }
-				)
+				const errorMsg = `Failed to remove document with ID ${doc._id}.`
+				this.logger?.(errorMsg)
+				throw new TransactionError(errorMsg, { original: error })
 			}
 
 			// Verify removal
 			const verify = this.get(doc._id)
 			if (verify) {
-				throw new TransactionError(
-					`Failed to verify removal of document ${doc._id}`
-				)
+				const errorMsg = `Failed to verify removal of document with ID ${doc._id}. Document still exists.`
+				this.logger?.(errorMsg)
+				throw new TransactionError(errorMsg)
 			}
 
-			this.logger?.(`Successfully removed document with ID: ${doc._id}`)
+			this.logger?.(
+				`Successfully removed and verified document with ID: ${doc._id}`
+			)
 			return true
 		})
 	}
