@@ -39,7 +39,6 @@
 		// Project Options
 		"removeComments": false,
 		"preserveConstEnums": true,
-		"incremental": true
 	},
 	"include": [
 		"src/**/*"
