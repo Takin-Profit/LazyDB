@@ -4,20 +4,20 @@
 
 # LazyDB
 
-LazyDB is a high-performance, type-safe document database built on top of LMDB (Lightning Memory-Mapped Database). It provides an intuitive, functional API with strong TypeScript support, ACID-compliant transactions, and robust error handling.
+LazyDB is a high-performance, type-safe entity database built on top of LMDB (Lightning Memory-Mapped Database). It provides an intuitive, functional API with strong TypeScript support, ACID-compliant transactions, and robust error handling.
 
 [![npm version](https://badge.fury.io/js/@takinprofit%2Flazydb.svg)](https://www.npmjs.com/package/@takinprofit/lazydb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
 
-- **Type-Safe Collections**: Full TypeScript support with type inference for documents and queries
+- **Type-Safe Repositories**: Full TypeScript support with type inference for entities and queries
 - **ACID Transactions**: Guaranteed data consistency with atomic operations
 - **High Performance**: Built on LMDB for lightning-fast read and write operations
 - **Event-Driven Architecture**: React to database operations with typed event emitters
 - **Flexible Querying**: Rich query API with support for filtering, mapping, and pagination
 - **Robust Error Handling**: Comprehensive error types for precise error management
-- **Advanced Features**: Document versioning, backup/restore, and compression support
+- **Advanced Features**: Entity versioning, backup/restore, and compression support
 - **Memory Efficient**: Uses memory-mapped files for optimal memory usage
 - **Multi-Process Safe**: Safe for use across multiple Node.js processes
 
@@ -30,11 +30,13 @@ LazyDB is a high-performance, type-safe document database built on top of LMDB (
   - [Quick Start](#quick-start)
   - [Database Operations](#database-operations)
     - [Initialization](#initialization)
-    - [Collection Management](#collection-management)
-      - [Collection Options](#collection-options)
-  - [Collections](#collections)
+    - [Repository Management](#repository-management)
+      - [Repository Options](#repository-options)
+  - [Repositories](#repositories)
     - [Basic Operations](#basic-operations)
     - [Upsert Operations](#upsert-operations)
+  - [Querying](#querying)
+    - [Basic Queries](#basic-queries)
     - [RangeIterable Operations](#rangeiterable-operations)
       - [Available Options and Types](#available-options-and-types)
       - [Basic Query Patterns](#basic-query-patterns)
@@ -43,7 +45,7 @@ LazyDB is a high-performance, type-safe document database built on top of LMDB (
   - [Transactions](#transactions)
   - [Events](#events)
     - [Database Events](#database-events)
-    - [Collection Events](#collection-events)
+    - [Repository Events](#repository-events)
   - [Error Handling](#error-handling)
   - [Advanced Features](#advanced-features)
     - [Custom ID Generation](#custom-id-generation)
@@ -77,10 +79,10 @@ pnpm add @takinprofit/lazydb
 ## Quick Start
 
 ```typescript
-import { Database, Document } from '@takinprofit/lazydb'
+import { Database, Entity } from '@takinprofit/lazydb'
 
-// Define your document type
-type User = Document<{
+// Define your entity type
+type User = Entity<{
   name: string
   email: string
   age: number
@@ -93,10 +95,10 @@ const db = new Database('./my-database', {
   maxCollections: 10
 })
 
-// Create a collection
-const users = db.collection<User>('users')
+// Create a repository
+const users = db.repository<User>('users')
 
-// Insert a document
+// Insert an entity
 const user = await users.insert({
   name: 'John Doe',
   email: 'john@example.com',
@@ -104,7 +106,7 @@ const user = await users.insert({
   active: true
 })
 
-// Find documents
+// Find entities
 const activeUsers = users.find({
   where: user => user.active && user.age >= 18
 })
@@ -114,10 +116,10 @@ for (const user of activeUsers) {
   console.log(user.name)
 }
 
-// Clean up specific collection
-await users.close() // Close single collection
+// Clean up specific repository
+await users.close() // Close single repository
 // or
-await db.closeCollection('users') // Close collection from database instance
+await db.closeCollection('users') // Close repository from database instance
 
 // Clean up entire database
 await db.close()
@@ -134,7 +136,7 @@ import { Database } from '@takinprofit/lazydb'
 
 const db = new Database('./db-path', {
   // LazyDB-specific options
-  maxCollections: 10,        // Maximum number of collections (replaces LMDB's maxDbs)
+  maxCollections: 10,        // Maximum number of repositories (replaces LMDB's maxDbs)
   idGenerator: () => uuid(), // Custom ID generation function
   logger: console.log,       // Optional logging function
 
@@ -144,7 +146,7 @@ const db = new Database('./db-path', {
   overlappingSync: true,     // Enable overlapping sync for better performance
   encoding: 'msgpack',       // Value encoding format
   cache: true,              // Enable caching
-  useVersions: false,       // Enable document versioning
+  useVersions: false,       // Enable entity versioning
 
   // Additional LMDB options
   mapSize: 2 * 1024 * 1024 * 1024,  // 2GB initial map size
@@ -164,8 +166,8 @@ For a complete list of supported options, refer to the [LMDB.js documentation](h
 
 LazyDB adds the following options:
 
-- `maxCollections`: Maximum number of collections (replaces LMDB's `maxDbs`)
-- `idGenerator`: Custom function for generating document IDs
+- `maxCollections`: Maximum number of repositories (replaces LMDB's `maxDbs`)
+- `idGenerator`: Custom function for generating entity IDs
 - `logger`: Optional logging function for database operations
 
 The configuration interface extends LMDB's options while providing type safety:
@@ -185,18 +187,18 @@ export type SafeRootDatabaseOptionsWithPath = Omit<
 }
 ```
 
-### Collection Management
+### Repository Management
 
-Collections in LazyDB can be managed through several methods, and each collection can be configured with its own options.
+Repositories in LazyDB can be managed through several methods, and each repository can be configured with its own options.
 
 ```typescript
-// Create/get a collection with options
-const users = db.collection<User>('users', {
-  // Collection-specific options (inherited from LMDB)
+// Create/get a repository with options
+const users = db.repository<User>('users', {
+  // Repository-specific options (inherited from LMDB)
   encoding: 'msgpack',           // Value encoding format
   compression: true,             // Enable LZ4 compression
   cache: true,                   // Enable caching
-  useVersions: false,           // Enable document versioning
+  useVersions: false,           // Enable entity versioning
   keyEncoding: 'ordered-binary', // Key encoding format
   strictAsyncOrder: false,      // Async operation ordering
   sharedStructuresKey: Symbol.for('structures'), // For msgpack/cbor encoding
@@ -205,22 +207,22 @@ const users = db.collection<User>('users', {
   idGenerator: () => uuid(),    // Override default ID generator
 })
 
-// Collection operations
-await db.clearCollection('users')              // Clear all documents
-await db.dropCollection('users')               // Remove the collection
-await users.close()                            // Close collection instance
+// Repository operations
+await db.clearCollection('users')              // Clear all entities
+await db.dropCollection('users')               // Remove the repository
+await users.close()                            // Close repository instance
 // or
-await db.closeCollection('users')              // Close collection from database
+await db.closeCollection('users')              // Close repository from database
 
 // Database-wide operations
-await db.clearAll()                            // Clear all collections
+await db.clearAll()                            // Clear all repositories
 await db.backup('./backup-path', true)         // Create backup (with compaction)
 await db.close()                               // Close the database
 ```
 
-#### Collection Options
+#### Repository Options
 
-When creating a collection with `db.collection<T>(name, options?)`, the following options are supported:
+When creating a repository with `db.repository<T>(name, options?)`, the following options are supported:
 
 ```typescript
 interface DatabaseOptions {
@@ -235,18 +237,18 @@ interface DatabaseOptions {
   strictAsyncOrder?: boolean            // Order of async operations
 
   // Feature flags
-  useVersions?: boolean                 // Enable document versioning
+  useVersions?: boolean                 // Enable entity versioning
 }
 
-// LazyDB collection options exclude dupSort and add idGenerator
+// LazyDB repository options exclude dupSort and add idGenerator
 type SafeDatabaseOptions = Omit<DatabaseOptions, "dupSort"> & {
   idGenerator?: IdGenerator            // Custom ID generation
 }
 ```
 
-All LMDB database options are supported except `dupSort`. Each collection can override the database's default settings for:
+All LMDB database options are supported except `dupSort`. Each repository can override the database's default settings for:
 
-- Document and key encoding
+- Entity and key encoding
 - Compression settings
 - Caching behavior
 - Version tracking
@@ -255,14 +257,14 @@ All LMDB database options are supported except `dupSort`. Each collection can ov
 
 For detailed information about these options, see the [LMDB.js documentation](https://github.com/kriszyp/lmdb-js?tab=readme-ov-file#db-options).
 
-## Collections
+## Repositories
 
-Collections provide type-safe access to groups of related documents.
+Repositories provide type-safe access to groups of related entities.
 
 ### Basic Operations
 
 ```typescript
-// Insert a single document
+// Insert a single entity
 const user = await users.insert({
   name: 'Jane Smith',
   email: 'jane@example.com',
@@ -270,30 +272,30 @@ const user = await users.insert({
   active: true
 })
 
-// Insert multiple documents
+// Insert multiple entities
 const newUsers = await users.insertMany([
   { name: 'User 1', email: 'user1@example.com', age: 20, active: true },
   { name: 'User 2', email: 'user2@example.com', age: 30, active: false }
 ])
 
-// Update a document
+// Update an entity
 const updated = await users.updateOne(
   { where: user => user._id === 'some-id' },
   { age: 26, active: false }
 )
 
-// Update multiple documents
+// Update multiple entities
 const updateCount = await users.updateMany(
   { where: user => user.age < 18 },
   { active: false }
 )
 
-// Remove a document
+// Remove an entity
 const removed = await users.removeOne({
   where: user => user.email === 'jane@example.com'
 })
 
-// Remove multiple documents
+// Remove multiple entities
 const removedCount = await users.removeMany({
   where: user => !user.active
 })
@@ -302,13 +304,13 @@ const removedCount = await users.removeMany({
 ### Upsert Operations
 
 ```typescript
-// Upsert a single document
+// Upsert a single entity
 const upserted = await users.upsert(
   { where: user => user.email === 'john@example.com' },
   { name: 'John Doe', email: 'john@example.com', age: 30, active: true }
 )
 
-// Upsert multiple documents
+// Upsert multiple entities
 const upsertedUsers = await users.upsertMany([
   {
     where: user => user.email === 'user1@example.com',
@@ -319,6 +321,7 @@ const upsertedUsers = await users.upsertMany([
     doc: { name: 'User 2', email: 'user2@example.com', age: 35, active: true }
   }
 ])
+```
 
 ## Querying
 
@@ -353,7 +356,7 @@ The `RangeIterable` class combines LMDB's powerful range queries with a flexible
 ```typescript
 // Main query options combining LMDB range options with where clause
 interface FindOptions<T> extends RangeOptions {
-  // Filter function for documents
+  // Filter function for entities
   where?: (entry: T) => boolean
 
   // Inherited from LMDB RangeOptions
@@ -676,20 +679,20 @@ LazyDB provides an event system for monitoring database operations:
 
 ```typescript
 // Database-level events
-db.on('collection.created', ({ name }) => {
-  console.log(`Collection ${name} was created`)
+db.on('repository.created', ({ name }) => {
+  console.log(`Repository ${name} was created`)
 })
 
-db.on('collection.cleared', ({ name }) => {
-  console.log(`Collection ${name} was cleared`)
+db.on('repository.cleared', ({ name }) => {
+  console.log(`Repository ${name} was cleared`)
 })
 
-db.on('collection.dropped', ({ name }) => {
-  console.log(`Collection ${name} was dropped`)
+db.on('repository.dropped', ({ name }) => {
+  console.log(`Repository ${name} was dropped`)
 })
 
 db.on('database.cleared', () => {
-  console.log('All collections were cleared')
+  console.log('All repositories were cleared')
 })
 
 db.on('database.closed', () => {
@@ -710,52 +713,52 @@ db.on('backup.failed', ({ path, error }) => {
 })
 ```
 
-### Collection Events
+### Repository Events
 
 ```typescript
-// Document operations
-users.on('document.inserted', ({ document }) => {
-  console.log('New document inserted:', document)
+// Entity operations
+users.on('entity.inserted', ({ entity }) => {
+  console.log('New entity inserted:', entity)
 })
 
-users.on('document.updated', ({ old, new: updated }) => {
-  console.log('Document updated from:', old, 'to:', updated)
+users.on('entity.updated', ({ old, new: updated }) => {
+  console.log('Entity updated from:', old, 'to:', updated)
 })
 
-users.on('document.removed', ({ document }) => {
-  console.log('Document removed:', document)
+users.on('entity.removed', ({ entity }) => {
+  console.log('Entity removed:', entity)
 })
 
 // Bulk operations
-users.on('documents.inserted', ({ documents }) => {
-  console.log(`${documents.length} documents inserted`)
+users.on('entities.inserted', ({ entities }) => {
+  console.log(`${entities.length} entities inserted`)
 })
 
-users.on('documents.updated', ({ count }) => {
-  console.log(`${count} documents updated`)
+users.on('entities.updated', ({ count }) => {
+  console.log(`${count} entities updated`)
 })
 
-users.on('documents.removed', ({ count }) => {
-  console.log(`${count} documents removed`)
+users.on('entities.removed', ({ count }) => {
+  console.log(`${count} entities removed`)
 })
 
 // Upsert operations
-users.on('document.upserted', ({ document, wasInsert }) => {
-  console.log(`Document ${wasInsert ? 'inserted' : 'updated'}:`, document)
+users.on('entity.upserted', ({ entity, wasInsert }) => {
+  console.log(`Entity ${wasInsert ? 'inserted' : 'updated'}:`, entity)
 })
 
-users.on('documents.upserted', ({ documents, insertCount, updateCount }) => {
-  console.log(`Upserted ${documents.length} documents (${insertCount} inserts, ${updateCount} updates)`)
+users.on('entities.upserted', ({ entities, insertCount, updateCount }) => {
+  console.log(`Upserted ${entities.length} entities (${insertCount} inserts, ${updateCount} updates)`)
 })
 
-// Listen for collection close events on the database
-db.on('collection.closed', ({ name }) => {
-  console.log(`Collection ${name} was closed`)
+// Listen for repository close events on the database
+db.on('repository.closed', ({ name }) => {
+  console.log(`Repository ${name} was closed`)
 })
 
-// Listen for close events on the collection
-users.on('collection.closed', ({ name }) => {
-  console.log(`Collection ${name} was closed`)
+// Listen for close events on the repository
+users.on('repository.closed', ({ name }) => {
+  console.log(`Repository ${name} was closed`)
 })
 ```
 
@@ -778,7 +781,7 @@ import {
 } from '@takinprofit/lazydb'
 
 try {
-  await users.insert({ /* invalid document */ })
+  await users.insert({ /* invalid entity */ })
 } catch (error) {
   if (error instanceof ValidationError) {
     console.error('Validation failed:', error.message)
@@ -788,7 +791,7 @@ try {
   } else if (error instanceof TransactionError) {
     console.error('Transaction failed:', error.message)
   } else if (error instanceof NotFoundError) {
-    console.error('Document not found:', error.message)
+    console.error('Entity not found:', error.message)
   } else if (error instanceof DatabaseError) {
     // Base class for all database errors
     console.error('Database error:', error.type, error.message)
@@ -827,7 +830,7 @@ const db = new Database('./db-path', {
   maxCollections: 10,
   commitDelay: 0,
   noMemInit: true,      // Performance optimization
-  useVersions: true,    // Enable document versioning
+  useVersions: true,    // Enable entity versioning
   encoding: 'msgpack',  // Data encoding format
 })
 ```
@@ -858,7 +861,7 @@ The test suite demonstrates:
 - Query capabilities
 - Error scenarios
 - Event handling
-- Performance with large datasets (10,000+ documents)
+- Performance with large datasets (10,000+ entities)
 - Edge cases and error conditions
 
 ## Contributing
