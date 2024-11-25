@@ -92,7 +92,7 @@ type User = Entity<{
 // Initialize the database
 const db = new Database('./my-database', {
   compression: true,
-  maxCollections: 10
+  maxRepositories: 10
 })
 
 // Create a repository
@@ -119,7 +119,7 @@ for (const user of activeUsers) {
 // Clean up specific repository
 await users.close() // Close single repository
 // or
-await db.closeCollection('users') // Close repository from database instance
+await db.closeRepository('users') // Close repository from database instance
 
 // Clean up entire database
 await db.close()
@@ -129,14 +129,14 @@ await db.close()
 
 ### Initialization
 
-LazyDB supports all LMDB options except `dupSort` and `maxDbs` (which is replaced with `maxCollections`). The configuration interface extends LMDB's options with additional LazyDB-specific features.
+LazyDB supports all LMDB options except `dupSort` and `maxDbs` (which is replaced with `maxRepositories`). The configuration interface extends LMDB's options with additional LazyDB-specific features.
 
 ```typescript
 import { Database } from '@takinprofit/lazydb'
 
 const db = new Database('./db-path', {
   // LazyDB-specific options
-  maxCollections: 10,        // Maximum number of repositories (replaces LMDB's maxDbs)
+  maxRepositories: 10,        // Maximum number of repositories (replaces LMDB's maxDbs)
   idGenerator: () => uuid(), // Custom ID generation function
   logger: console.log,       // Optional logging function
 
@@ -162,11 +162,11 @@ const db = new Database('./db-path', {
 For a complete list of supported options, refer to the [LMDB.js documentation](https://github.com/kriszyp/lmdb-js?tab=readme-ov-file#db-options). LazyDB supports all LMDB options except:
 
 - `dupSort` (not supported)
-- `maxDbs` (use `maxCollections` instead)
+- `maxDbs` (use `maxRepositories` instead)
 
 LazyDB adds the following options:
 
-- `maxCollections`: Maximum number of repositories (replaces LMDB's `maxDbs`)
+- `maxRepositories`: Maximum number of repositories (replaces LMDB's `maxDbs`)
 - `idGenerator`: Custom function for generating entity IDs
 - `logger`: Optional logging function for database operations
 
@@ -182,7 +182,7 @@ export type SafeRootDatabaseOptionsWithPath = Omit<
   RootDatabaseOptionsWithPath,
   "dupSort" | "maxDbs"
 > & {
-  maxCollections?: number
+  maxRepositories?: number
   idGenerator?: IdGenerator
 }
 ```
@@ -208,11 +208,11 @@ const users = db.repository<User>('users', {
 })
 
 // Repository operations
-await db.clearCollection('users')              // Clear all entities
-await db.dropCollection('users')               // Remove the repository
+await db.clearRepository('users')              // Clear all entities
+await db.dropRepository('users')               // Remove the repository
 await users.close()                            // Close repository instance
 // or
-await db.closeCollection('users')              // Close repository from database
+await db.closeRepository('users')              // Close repository from database
 
 // Database-wide operations
 await db.clearAll()                            // Clear all repositories
@@ -827,7 +827,7 @@ const db = new Database('./db-path', {
   compression: true,
   pageSize: 8192,
   overlappingSync: true,
-  maxCollections: 10,
+  maxRepositories: 10,
   commitDelay: 0,
   noMemInit: true,      // Performance optimization
   useVersions: true,    // Enable entity versioning
