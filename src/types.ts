@@ -5,14 +5,14 @@ import type {
 } from "lmdb"
 
 /**
- * Base document type
+ * Base entity type
  */
-export type Document<T = unknown> = {
+export type Entity<T = unknown> = {
 	_id: string
 } & T
 
 /**
- * Function type for generating document IDs
+ * Function type for generating entity IDs
  */
 export type IdGenerator = () => string
 
@@ -34,7 +34,7 @@ export type SafeRootDatabaseOptionsWithPath = Omit<
 	RootDatabaseOptionsWithPath,
 	"dupSort" | "maxDbs"
 > & {
-	maxCollections?: number
+	maxRepositories?: number
 	idGenerator?: IdGenerator
 }
 
@@ -60,10 +60,10 @@ export interface OperationStats {
 // Event types for database operations
 export type DatabaseEvents = {
 	[K in
-		| "collection.created"
-		| "collection.cleared"
-		| "collection.dropped"
-		| "collection.closed"]: {
+		| "repository.created"
+		| "repository.cleared"
+		| "repository.dropped"
+		| "repository.closed"]: {
 		name: string
 	}
 } & {
@@ -77,29 +77,29 @@ export type DatabaseEvents = {
 	"database.closed": null
 }
 
-export type CollectionEvents<T> = {
+export type RepositoryEvents<T> = {
 	[K in
-		| "document.inserted"
-		| "document.updated"
-		| "document.removed"]: K extends "document.inserted"
-		? { document: T }
-		: K extends "document.updated"
+		| "entity.inserted"
+		| "entity.updated"
+		| "entity.removed"]: K extends "entity.inserted"
+		? { entity: T }
+		: K extends "entity.updated"
 			? { old: T | null; new: T }
-			: { document: T }
+			: { entity: T }
 } & {
 	[K in
-		| "documents.inserted"
-		| "documents.updated"
-		| "documents.removed"]: K extends "documents.inserted"
-		? { documents: T[] }
-		: K extends "documents.updated"
+		| "entities.inserted"
+		| "entities.updated"
+		| "entities.removed"]: K extends "entities.inserted"
+		? { entities: T[] }
+		: K extends "entities.updated"
 			? { count: number }
 			: { count: number }
 } & {
-	[K in "document.upserted"]: { document: T; wasInsert: boolean }
+	[K in "entity.upserted"]: { entity: T; wasInsert: boolean }
 } & {
-	[K in "documents.upserted"]: {
-		documents: T[]
+	[K in "entities.upserted"]: {
+		entities: T[]
 		insertCount: number
 		updateCount: number
 	}

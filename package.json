@@ -18,8 +18,9 @@
   },
   "scripts": {
     "build": "pkgroll --tsconfig tsconfig.build.json",
-    "test": "tsx --test src/**/*.test.ts",
-    "clean": "pnpm rimraf dist coverage",
+    "test:all": "tsx --test src/**/*.test.ts",
+    "test": "npm-run-all2 clean test:all",
+    "clean": "pnpm rimraf dist coverage advanced-test-db/*.mdb test-db/*.mdb",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
@@ -34,10 +35,11 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^22.9.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.6.3",
+    "npm-run-all2": "^7.0.1",
     "pkgroll": "^1.0.0",
-    "rimraf": "^5.0.0"
+    "rimraf": "^5.0.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
   },
   "dependencies": {
     "lmdb": "^3.1.6"

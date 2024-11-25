@@ -48,10 +48,11 @@ describe("Database Class Tests", async () => {
 	await test("Repository creation and limits", async () => {
 		const db = new Database(TEST_DB_PATH, { maxRepositories: 2 })
 
+		// Create initial repositories
 		const repo1 = db.repository<TestEntity>("repo1")
-		db.repository<TestEntity>("repo2") // Use _ to ignore unused variable warning
+		const _ = db.repository<TestEntity>("repo2")
 
-		// Now this should throw because we've reached the limit
+		// Test max repositories limit
 		assert.throws(
 			() => db.repository("repo3"),
 			(err: Error) =>
@@ -59,7 +60,7 @@ describe("Database Class Tests", async () => {
 				err.message === "Maximum number of repositories (2) has been reached"
 		)
 
-		// Should return the same repository instance when requesting an existing one
+		// Test that we get the same instance back instead of throwing
 		const repo1Again = db.repository<TestEntity>("repo1")
 		assert.strictEqual(
 			repo1,

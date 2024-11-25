@@ -1,8 +1,8 @@
 import type { Database as LMDBDatabase, RangeIterable } from "lmdb"
 import {
 	TypedEventEmitter,
-	type CollectionEvents,
-	type Document,
+	type RepositoryEvents,
+	type Entity,
 	type FindOptions,
 	type IdGenerator,
 } from "./types.js"
@@ -14,29 +14,26 @@ import {
 } from "./errors.js"
 
 /**
-
- *
- * @template T The document type stored in the collection.
- * @extends TypedEventEmitter<CollectionEvents<T>>
- * @event document.inserted Fired when a document is inserted.
- * @event documents.inserted Fired when multiple documents are inserted.
- * @event document.updated Fired when a document is updated.
- * @event documents.updated Fired when multiple documents are updated.
- * @event document.removed Fired when a document is removed.
- * @event documents.removed Fired when multiple documents are removed.
- * @event document.upserted Fired when a document is upserted.
- * @event documents.upserted Fired when multiple documents are upserted.
- * @event collection.closed Fired when the collection is closed.
+ * @template T The entity type stored in the repository.
+ * @extends TypedEventEmitter<RepositoryEvents<T>>
+ * @event entity.inserted Fired when an entity is inserted.
+ * @event entities.inserted Fired when multiple entities are inserted.
+ * @event entity.updated Fired when an entity is updated.
+ * @event entities.updated Fired when multiple entities are updated.
+ * @event entity.removed Fired when an entity is removed.
+ * @event entities.removed Fired when multiple entities are removed.
+ * @event entity.upserted Fired when an entity is upserted.
+ * @event entities.upserted Fired when multiple entities are upserted.
+ * @event repository.closed Fired when the repository is closed.
  */
-export class Collection<T extends Document> extends TypedEventEmitter<
-	CollectionEvents<T> & { "collection.closed": { name: string } }
+export class Repository<T extends Entity> extends TypedEventEmitter<
+	RepositoryEvents<T> & { "repository.closed": { name: string } }
 > {
 	private readonly db: LMDBDatabase<T, string>
 	public readonly committed: Promise<boolean>
 	public readonly flushed: Promise<boolean>
 	private readonly idGenerator: IdGenerator
 	private readonly logger?: (msg: string) => void
-
 	private readonly name: string
 
 	constructor(
@@ -57,45 +54,45 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 	}
 
 	/**
-	 * Retrieves a single document by ID.
+	 * Retrieves a single entity by ID.
 	 *
-	 * @param {string} id The ID of the document to retrieve.
-	 * @returns {T | null} The retrieved document or `null` if not found.
+	 * @param {string} id The ID of the entity to retrieve.
+	 * @returns {T | null} The retrieved entity or `null` if not found.
 	 * @throws {UnknownError} If an unexpected error occurs during the operation.
 	 */
 	get(id: string): T | null {
 		try {
 			const value = this.db.get(id)
-			return value ?? null // Return null if undefined
+			return value ?? null
 		} catch (error) {
-			const errorMsg = `Get operation failed for document ID ${id}: ${error instanceof Error ? error.message : String(error)}`
+			const errorMsg = `Get operation failed for entity ID ${id}: ${error instanceof Error ? error.message : String(error)}`
 			this.logger?.(errorMsg)
 			throw new UnknownError(errorMsg, { original: error })
 		}
 	}
 
 	/**
-	 * Checks if a document exists.
+	 * Checks if an entity exists.
 	 *
-	 * @param {string} id The ID of the document to check.
+	 * @param {string} id The ID of the entity to check.
 	 * @param {number} [version] Optional version to check for existence.
-	 * @returns {boolean} `true` if the document exists, otherwise `false`.
+	 * @returns {boolean} `true` if the entity exists, otherwise `false`.
 	 * @throws {UnknownError} If an unexpected error occurs during the operation.
 	 */
 	doesExist(id: string, version?: number): boolean {
 		try {
 			return version ? this.db.doesExist(id, version) : this.db.doesExist(id)
 		} catch (error) {
-			const errorMsg = `Existence check failed for document ID ${id}: ${error instanceof Error ? error.message : String(error)}`
+			const errorMsg = `Existence check failed for entity ID ${id}: ${error instanceof Error ? error.message : String(error)}`
 			this.logger?.(errorMsg)
 			throw new UnknownError(errorMsg, { original: error })
 		}
 	}
 
 	/**
-	 * Prefetches documents into memory.
+	 * Prefetches entities into memory.
 	 *
-	 * @param {string[]} ids The IDs of the documents to prefetch.
+	 * @param {string[]} ids The IDs of the entities to prefetch.
 	 * @returns {Promise<void>} Resolves when the prefetch operation is successful.
 	 * @throws {UnknownError} If an unexpected error occurs during the operation.
 	 */
@@ -103,17 +100,16 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 		try {
 			await this.db.prefetch(ids)
 		} catch (error) {
-			const errorMsg = `Prefetch operation failed for document IDs ${JSON.stringify(ids)}: ${error instanceof Error ? error.message : String(error)}`
+			const errorMsg = `Prefetch operation failed for entity IDs ${JSON.stringify(ids)}: ${error instanceof Error ? error.message : String(error)}`
 			this.logger?.(errorMsg)
 			throw new UnknownError(errorMsg, { original: error })
 		}
 	}
-
 	/**
-	 * Retrieves multiple documents by their IDs.
+	 * Retrieves multiple entities by their IDs.
 	 *
-	 * @param {string[]} ids The IDs of the documents to retrieve.
-	 * @returns {Promise<(T | null)[]>} Resolves to an array of documents or null for missing entries.
+	 * @param {string[]} ids The IDs of the entities to retrieve.
+	 * @returns {Promise<(T | null)[]>} Resolves to an array of entities or null for missing entries.
 	 * @throws {UnknownError} If an unexpected error occurs during the operation.
 	 */
 	async getMany(ids: string[]): Promise<(T | null)[]> {
@@ -121,17 +117,17 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 			const values = await this.db.getMany(ids)
 			return values.map((value) => value ?? null)
 		} catch (error) {
-			const errorMsg = `GetMany operation failed for document IDs ${JSON.stringify(ids)}: ${error instanceof Error ? error.message : String(error)}`
+			const errorMsg = `GetMany operation failed for entity IDs ${JSON.stringify(ids)}: ${error instanceof Error ? error.message : String(error)}`
 			this.logger?.(errorMsg)
 			throw new UnknownError(errorMsg, { original: error })
 		}
 	}
 
 	/**
-	 * Finds documents matching the provided conditions.
+	 * Finds entities matching the provided conditions.
 	 *
 	 * @param {FindOptions<T>} options Options for the query, including `where` conditions.
-	 * @returns {RangeIterable<T>} A lazy iterable over the matching documents.
+	 * @returns {RangeIterable<T>} A lazy iterable over the matching entities.
 	 * @throws {UnknownError} If an error occurs during the find operation.
 	 */
 	find(options: FindOptions<T> = {}): RangeIterable<T> {
@@ -165,11 +161,11 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 	}
 
 	/**
-	 * Finds a single document matching the given condition.
+	 * Finds a single entity matching the given condition.
 	 *
 	 * @param {Pick<FindOptions<T>, "where">} options Options containing the `where` condition.
-	 * @returns {T | null} The matching document, or null if no match is found.
-	 * @throws {UnknownError} If an error occurs while searching for a document.
+	 * @returns {T | null} The matching entity, or null if no match is found.
+	 * @throws {UnknownError} If an error occurs while searching for an entity.
 	 */
 	findOne(options: Pick<FindOptions<T>, "where">): T | null {
 		this.logger?.(
@@ -177,16 +173,16 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 		)
 
 		try {
-			// Use `find` to retrieve documents with the `where` clause
+			// Use `find` to retrieve entities with the `where` clause
 			const range = this.find({ where: options.where })
 
 			// Iterate through the range and return the first match
 			for (const value of range) {
-				this.logger?.(`Found matching document: ${JSON.stringify(value)}`)
+				this.logger?.(`Found matching entity: ${JSON.stringify(value)}`)
 				return value
 			}
 
-			this.logger?.("No matching document found")
+			this.logger?.("No matching entity found")
 			return null
 		} catch (error) {
 			const errorMsg = `FindOne operation failed: ${
@@ -198,31 +194,31 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 	}
 
 	/**
-	 * Inserts a new document into the database.
+	 * Inserts a new entity into the database.
 	 *
-	 * @param {Omit<T, "_id">} doc The document to insert, excluding the `_id` field.
-	 * @returns {Promise<T>} The inserted document with the `_id` field included.
-	 * @throws {ValidationError} If the document is invalid or cannot be processed.
+	 * @param {Omit<T, "_id">} doc The entity to insert, excluding the `_id` field.
+	 * @returns {Promise<T>} The inserted entity with the `_id` field included.
+	 * @throws {ValidationError} If the entity is invalid or cannot be processed.
 	 * @throws {UnknownError} If an unexpected error occurs during the insert operation.
-	 * @fires Collection#document.inserted
+	 * @fires Repository#entity.inserted
 	 */
 	async insert(doc: Omit<T, "_id">): Promise<T> {
 		try {
-			// Generate a unique ID for the document
+			// Generate a unique ID for the entity
 			const _id = this.idGenerator()
 
-			// Combine the new ID with the document
-			const document = { ...doc, _id } as T
+			// Combine the new ID with the entity
+			const entity = { ...doc, _id } as T
 
-			// Attempt to insert the document into the database
-			await this.db.put(_id, document)
+			// Attempt to insert the entity into the database
+			await this.db.put(_id, entity)
 
-			this.logger?.(`Document inserted successfully with ID: ${_id}`)
+			this.logger?.(`Entity inserted successfully with ID: ${_id}`)
 
-			// Emit the "document.inserted" event
-			this.emit("document.inserted", { document })
+			// Emit the "entity.inserted" event
+			this.emit("entity.inserted", { entity })
 
-			return document
+			return entity
 		} catch (error) {
 			const errorMsg = `Insert operation failed: ${
 				error instanceof Error ? error.message : String(error)
@@ -239,13 +235,13 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 	}
 
 	/**
-	 * Inserts multiple documents into the database.
+	 * Inserts multiple entities into the database.
 	 *
-	 * @param {Array<Omit<T, "_id">>} docs The array of documents to insert, excluding the `_id` field.
-	 * @returns {Promise<T[]>} The array of inserted documents with `_id` fields included.
+	 * @param {Array<Omit<T, "_id">>} docs The array of entities to insert, excluding the `_id` field.
+	 * @returns {Promise<T[]>} The array of inserted entities with `_id` fields included.
 	 * @throws {TransactionError} If the transaction fails or verification fails.
 	 * @throws {UnknownError} If an unexpected error occurs during the insert operation.
-	 * @fires Collection#documents.inserted
+	 * @fires Repository#entities.inserted
 	 */
 	async insertMany(docs: Array<Omit<T, "_id">>): Promise<T[]> {
 		this.logger?.("Starting insertMany operation")
@@ -254,28 +250,28 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 			return await this.transaction<T[]>(() => {
 				const results: T[] = []
 
-				// Insert all documents
+				// Insert all entities
 				for (const doc of docs) {
 					const _id = this.idGenerator()
-					const document = { ...doc, _id } as T
-					this.db.put(_id, document)
-					this.logger?.(`Inserted document: ${JSON.stringify(document)}`)
-					results.push(document)
+					const entity = { ...doc, _id } as T
+					this.db.put(_id, entity)
+					this.logger?.(`Inserted entity: ${JSON.stringify(entity)}`)
+					results.push(entity)
 				}
 
 				// Verify inserts
-				for (const doc of results) {
-					const verify = this.get(doc._id)
+				for (const entity of results) {
+					const verify = this.get(entity._id)
 
 					if (!verify) {
-						const errorMsg = `Failed to verify insert for document with ID ${doc._id}`
+						const errorMsg = `Failed to verify insert for entity with ID ${entity._id}`
 						this.logger?.(errorMsg)
 						throw new TransactionError(errorMsg)
 					}
 				}
 
-				// Emit the "documents.inserted" event
-				this.emit("documents.inserted", { documents: results })
+				// Emit the "entities.inserted" event
+				this.emit("entities.inserted", { entities: results })
 
 				return results
 			})
@@ -294,61 +290,61 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 	}
 
 	/**
-	 * Updates an existing document or inserts a new one if it doesn't exist.
+	 * Updates an existing entity or inserts a new one if it doesn't exist.
 	 *
-	 * @param {Pick<FindOptions<T>, "where">} options The options to find the existing document.
-	 * @param {Omit<T, "_id">} doc The document to insert or update.
-	 * @returns {Promise<T>} The inserted or updated document.
+	 * @param {Pick<FindOptions<T>, "where">} options The options to find the existing entity.
+	 * @param {Omit<T, "_id">} doc The entity to insert or update.
+	 * @returns {Promise<T>} The inserted or updated entity.
 	 * @throws {TransactionError} If the transaction fails.
 	 * @throws {UnknownError} If an unexpected error occurs during the operation.
-	 * @fires Collection#document.upserted
+	 * @fires Repository#entity.upserted
 	 */
 	async upsert(
 		options: Pick<FindOptions<T>, "where">,
 		doc: Omit<T, "_id">
 	): Promise<T> {
 		return await this.transaction(() => {
-			// Perform the query to find the existing document
+			// Perform the query to find the existing entity
 			const range = this.find({ where: options.where })
-			const existing = range.asArray[0] // Only need the first matching document
+			const existing = range.asArray[0] // Only need the first matching entity
 
 			if (existing) {
-				// Update the document
+				// Update the entity
 				const updated = { ...existing, ...doc }
-				this.db.put(updated._id, updated) // No need to catch; LMDB handles transaction errors
+				this.db.put(updated._id, updated)
 
-				// Emit the "document.upserted" event with wasInsert = false
-				this.emit("document.upserted", {
-					document: updated,
+				// Emit the "entity.upserted" event with wasInsert = false
+				this.emit("entity.upserted", {
+					entity: updated,
 					wasInsert: false,
 				})
 
 				return updated
 			}
 
-			// Insert the document if it doesn't exist
+			// Insert the entity if it doesn't exist
 			const _id = this.idGenerator()
-			const newDocument = { ...doc, _id } as T
-			this.db.put(_id, newDocument) // Insert new document
+			const newEntity = { ...doc, _id } as T
+			this.db.put(_id, newEntity)
 
-			// Emit the "document.upserted" event with wasInsert = true
-			this.emit("document.upserted", {
-				document: newDocument,
+			// Emit the "entity.upserted" event with wasInsert = true
+			this.emit("entity.upserted", {
+				entity: newEntity,
 				wasInsert: true,
 			})
 
-			return newDocument
+			return newEntity
 		})
 	}
 
 	/**
-	 * Updates multiple documents or inserts them if they don't exist.
+	 * Updates multiple entities or inserts them if they don't exist.
 	 *
 	 * @param {Array<{ where: FindOptions<T>["where"]; doc: Omit<T, "_id"> }>} operations The array of operations to perform.
-	 * @returns {Promise<T[]>} The array of inserted or updated documents.
+	 * @returns {Promise<T[]>} The array of inserted or updated entities.
 	 * @throws {TransactionError} If the transaction fails.
 	 * @throws {UnknownError} If an unexpected error occurs during the operation.
-	 * @fires Collection#documents.upserted
+	 * @fires Repository#entities.upserted
 	 */
 	async upsertMany(
 		operations: Array<{ where: FindOptions<T>["where"]; doc: Omit<T, "_id"> }>
@@ -359,29 +355,29 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 			let updateCount = 0
 
 			for (const op of operations) {
-				// Perform a find operation to locate the existing document
+				// Perform a find operation to locate the existing entity
 				const range = this.find({ where: op.where })
 				const existing = range.asArray[0] // Only the first match is relevant
 
 				if (existing) {
-					// Update the document
+					// Update the entity
 					const updated = { ...existing, ...op.doc }
 					this.db.put(updated._id, updated)
 					results.push(updated)
 					updateCount++
 				} else {
-					// Insert a new document
+					// Insert a new entity
 					const _id = this.idGenerator()
-					const newDoc = { ...op.doc, _id } as T
-					this.db.put(_id, newDoc)
-					results.push(newDoc)
+					const newEntity = { ...op.doc, _id } as T
+					this.db.put(_id, newEntity)
+					results.push(newEntity)
 					insertCount++
 				}
 			}
 
-			// Emit the "documents.upserted" event
-			this.emit("documents.upserted", {
-				documents: results,
+			// Emit the "entities.upserted" event
+			this.emit("entities.upserted", {
+				entities: results,
 				insertCount,
 				updateCount,
 			})
@@ -391,14 +387,14 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 	}
 
 	/**
-	 * Updates a single document matching the filter.
+	 * Updates a single entity matching the filter.
 	 *
-	 * @param {Pick<FindOptions<T>, "where">} options The options to find the document to update.
+	 * @param {Pick<FindOptions<T>, "where">} options The options to find the entity to update.
 	 * @param {Partial<Omit<T, "_id">>} update The update payload.
-	 * @returns {Promise<T | null>} The updated document, or null if no matching document is found.
+	 * @returns {Promise<T | null>} The updated entity, or null if no matching entity is found.
 	 * @throws {TransactionError} If the transaction fails.
 	 * @throws {UnknownError} If an unexpected error occurs.
-	 * @fires Collection#document.updated
+	 * @fires Repository#entity.updated
 	 */
 	async updateOne(
 		options: Pick<FindOptions<T>, "where">,
@@ -409,43 +405,43 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 
 		return await this.transaction(() => {
 			const range = this.find({ where: options.where })
-			const existing = range.asArray[0] // Get the first matching document
+			const existing = range.asArray[0] // Get the first matching entity
 
 			if (!existing) {
-				this.logger?.("No document found to update")
+				this.logger?.("No entity found to update")
 				return null // Indicate no update occurred
 			}
 
-			const updatedDoc = { ...existing, ...update }
+			const updatedEntity = { ...existing, ...update }
 
 			try {
-				this.db.put(updatedDoc._id, updatedDoc)
+				this.db.put(updatedEntity._id, updatedEntity)
 			} catch (error) {
 				throw new TransactionError(
-					`Failed to update document with ID ${updatedDoc._id}`,
+					`Failed to update entity with ID ${updatedEntity._id}`,
 					{ original: error }
 				)
 			}
 
-			// Emit the "document.updated" event
-			this.emit("document.updated", { old: existing, new: updatedDoc })
+			// Emit the "entity.updated" event
+			this.emit("entity.updated", { old: existing, new: updatedEntity })
 
-			this.logger?.(`Successfully updated document with ID ${updatedDoc._id}`)
+			this.logger?.(`Successfully updated entity with ID ${updatedEntity._id}`)
 
-			return updatedDoc
+			return updatedEntity
 		})
 	}
 
 	/**
-	 * Updates all documents that match the filter.
+	 * Updates all entities that match the filter.
 	 *
-	 * @param {Pick<FindOptions<T>, "where">} options The options to find the documents to update.
+	 * @param {Pick<FindOptions<T>, "where">} options The options to find the entities to update.
 	 * @param {Partial<Omit<T, "_id">>} update The update payload.
-	 * @returns {Promise<number>} The number of documents updated.
+	 * @returns {Promise<number>} The number of entities updated.
 	 * @throws {TransactionError} If the transaction fails.
-	 * @throws {ValidationError} If a document is missing a required `_id` field.
+	 * @throws {ValidationError} If an entity is missing a required `_id` field.
 	 * @throws {UnknownError} If an unexpected error occurs.
-	 * @fires Collection#documents.updated
+	 * @fires Repository#entities.updated
 	 */
 	async updateMany(
 		options: Pick<FindOptions<T>, "where">,
@@ -458,52 +454,52 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 
 		return await this.transaction(() => {
 			const range = this.find({ where: options.where })
-			const documents = range.asArray
+			const entities = range.asArray
 
-			if (documents.length === 0) {
-				this.logger?.("No documents found to update")
+			if (entities.length === 0) {
+				this.logger?.("No entities found to update")
 				return 0 // No updates performed
 			}
 
 			let modifiedCount = 0
 
-			for (const doc of documents) {
-				if (!doc._id) {
-					throw new ValidationError("Updated document must have an _id", {
+			for (const entity of entities) {
+				if (!entity._id) {
+					throw new ValidationError("Updated entity must have an _id", {
 						field: "_id",
 					})
 				}
 
-				const updatedDoc = { ...doc, ...update }
+				const updatedEntity = { ...entity, ...update }
 
 				try {
-					this.db.put(doc._id, updatedDoc)
+					this.db.put(entity._id, updatedEntity)
 					modifiedCount++
 				} catch (error) {
 					throw new TransactionError(
-						`Failed to update document with ID ${doc._id}`,
+						`Failed to update entity with ID ${entity._id}`,
 						{ original: error }
 					)
 				}
 			}
 
-			this.logger?.(`Updated ${modifiedCount} documents`)
+			this.logger?.(`Updated ${modifiedCount} entities`)
 
-			// Emit the "documents.updated" event
-			this.emit("documents.updated", { count: modifiedCount })
+			// Emit the "entities.updated" event
+			this.emit("entities.updated", { count: modifiedCount })
 
 			return modifiedCount
 		})
 	}
 
 	/**
-	 * Removes a single document that matches the filter.
+	 * Removes a single entity that matches the filter.
 	 *
-	 * @param {Pick<FindOptions<T>, "where">} options The options to find the document to remove.
-	 * @returns {Promise<boolean>} True if a document was removed, otherwise false.
+	 * @param {Pick<FindOptions<T>, "where">} options The options to find the entity to remove.
+	 * @returns {Promise<boolean>} True if an entity was removed, otherwise false.
 	 * @throws {TransactionError} If the transaction fails.
 	 * @throws {UnknownError} If an unexpected error occurs.
-	 * @fires Collection#document.removed
+	 * @fires Repository#entity.removed
 	 */
 	async removeOne(options: Pick<FindOptions<T>, "where">): Promise<boolean> {
 		this.logger?.(
@@ -512,51 +508,51 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 
 		return await this.transaction(() => {
 			const range = this.find({ where: options.where })
-			const [doc] = range.asArray
+			const [entity] = range.asArray
 
-			if (!doc) {
-				this.logger?.("No document found to match the given filter.")
-				return false // No document to remove
+			if (!entity) {
+				this.logger?.("No entity found to match the given filter.")
+				return false // No entity to remove
 			}
 
-			this.logger?.(`Found document with ID: ${doc._id}. Preparing to remove.`)
+			this.logger?.(`Found entity with ID: ${entity._id}. Preparing to remove.`)
 
 			try {
-				this.db.remove(doc._id)
-				this.logger?.(`Document with ID ${doc._id} removed from the database.`)
+				this.db.remove(entity._id)
+				this.logger?.(`Entity with ID ${entity._id} removed from the database.`)
 			} catch (error) {
-				const errorMsg = `Failed to remove document with ID ${doc._id}.`
+				const errorMsg = `Failed to remove entity with ID ${entity._id}.`
 				this.logger?.(errorMsg)
 				throw new TransactionError(errorMsg, { original: error })
 			}
 
 			// Verify removal
-			const verify = this.get(doc._id)
+			const verify = this.get(entity._id)
 			if (verify) {
-				const errorMsg = `Failed to verify removal of document with ID ${doc._id}. Document still exists.`
+				const errorMsg = `Failed to verify removal of entity with ID ${entity._id}. Entity still exists.`
 				this.logger?.(errorMsg)
 				throw new TransactionError(errorMsg)
 			}
 
 			this.logger?.(
-				`Successfully removed and verified document with ID: ${doc._id}`
+				`Successfully removed and verified entity with ID: ${entity._id}`
 			)
 
-			// Emit the "document.removed" event
-			this.emit("document.removed", { document: doc })
+			// Emit the "entity.removed" event
+			this.emit("entity.removed", { entity })
 
 			return true
 		})
 	}
 
 	/**
-	 * Removes all documents that match the provided filter.
+	 * Removes all entities that match the provided filter.
 	 *
-	 * @param {Pick<FindOptions<T>, "where">} options The options to find the documents to remove.
-	 * @returns {Promise<number>} The number of documents removed.
+	 * @param {Pick<FindOptions<T>, "where">} options The options to find the entities to remove.
+	 * @returns {Promise<number>} The number of entities removed.
 	 * @throws {TransactionError} If the transaction fails.
 	 * @throws {UnknownError} If an unexpected error occurs.
-	 * @fires Collection#documents.removed
+	 * @fires Repository#entities.removed
 	 */
 	async removeMany(options: Pick<FindOptions<T>, "where">): Promise<number> {
 		this.logger?.(
@@ -565,44 +561,44 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 
 		return await this.transaction(() => {
 			const range = this.find({ where: options.where })
-			const documents = range.asArray
+			const entities = range.asArray
 
 			let removedCount = 0
 
-			for (const doc of documents) {
-				if (!doc._id) {
-					throw new ValidationError("Document is missing _id field", {
+			for (const entity of entities) {
+				if (!entity._id) {
+					throw new ValidationError("Entity is missing _id field", {
 						field: "_id",
 					})
 				}
 
 				try {
-					this.db.remove(doc._id)
+					this.db.remove(entity._id)
 					removedCount++
 				} catch (error) {
 					throw new TransactionError(
-						`Failed to remove document with ID ${doc._id}`,
+						`Failed to remove entity with ID ${entity._id}`,
 						{ original: error }
 					)
 				}
 			}
 
-			this.logger?.(`Successfully removed ${removedCount} document(s).`)
+			this.logger?.(`Successfully removed ${removedCount} entity(s).`)
 
-			// Emit the "documents.removed" event
-			this.emit("documents.removed", { count: removedCount })
+			// Emit the "entities.removed" event
+			this.emit("entities.removed", { count: removedCount })
 
 			return removedCount
 		})
 	}
 
 	/**
-	 * Executes an action only if the document with the given ID does not exist.
+	 * Executes an action only if the entity with the given ID does not exist.
 	 *
-	 * @param {string} id The ID of the document to check.
-	 * @param {() => R} action The action to execute if the document does not exist.
-	 * @returns {Promise<R>} The result of the action if the document does not exist.
-	 * @throws {ConstraintError} If the document already exists.
+	 * @param {string} id The ID of the entity to check.
+	 * @param {() => R} action The action to execute if the entity does not exist.
+	 * @returns {Promise<R>} The result of the action if the entity does not exist.
+	 * @throws {ConstraintError} If the entity already exists.
 	 * @throws {TransactionError} If the conditional write fails.
 	 * @throws {UnknownError} If an unexpected error occurs.
 	 */
@@ -621,7 +617,7 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 
 			if (!success) {
 				throw new ConstraintError(
-					`Operation aborted - document with ID ${id} already exists`,
+					`Operation aborted - entity with ID ${id} already exists`,
 					{
 						constraint: "unique_key",
 					}
@@ -637,7 +633,7 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 			if (error instanceof Error) {
 				this.logger?.(`Transaction failed: ${error.message}`)
 				throw new TransactionError(
-					`ifNoExists operation failed for document ID ${id}`,
+					`ifNoExists operation failed for entity ID ${id}`,
 					{
 						original: error,
 					}
@@ -645,7 +641,7 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 			}
 
 			throw new UnknownError(
-				`An unknown error occurred during ifNoExists operation for document ID ${id}`,
+				`An unknown error occurred during ifNoExists operation for entity ID ${id}`,
 				{
 					original: error,
 				}
@@ -688,20 +684,20 @@ export class Collection<T extends Document> extends TypedEventEmitter<
 	}
 
 	/**
-	 * Closes the collection and releases associated resources.
+	 * Closes the repository and releases associated resources.
 	 *
-	 * @returns {Promise<void>} Resolves when the collection has been closed.
+	 * @returns {Promise<void>} Resolves when the repository has been closed.
 	 * @throws {UnknownError} If an unexpected error occurs during the close operation.
-	 * @fires Collection#collection.closed
+	 * @fires Repository#repository.closed
 	 */
 	async close(): Promise<void> {
-		this.logger?.(`Closing collection: ${this.name}`)
+		this.logger?.(`Closing repository: ${this.name}`)
 		try {
 			await this.db.close()
-			this.emit("collection.closed", { name: this.name })
-			this.logger?.(`Collection "${this.name}" closed successfully.`)
+			this.emit("repository.closed", { name: this.name })
+			this.logger?.(`Repository "${this.name}" closed successfully.`)
 		} catch (error) {
-			const errorMsg = `Failed to close collection "${this.name}": ${error instanceof Error ? error.message : String(error)}`
+			const errorMsg = `Failed to close repository "${this.name}": ${error instanceof Error ? error.message : String(error)}`
 			this.logger?.(errorMsg)
 			throw new UnknownError(errorMsg, { original: error })
 		}

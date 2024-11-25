@@ -4,7 +4,7 @@
 
 // Export types
 export type {
-	Document,
+	Entity,
 	FindOptions,
 	SafeDatabaseOptions,
 	SafeRootDatabaseOptionsWithPath,
@@ -13,7 +13,7 @@ export type {
 } from "./types.js"
 
 // Export classes
-export { Collection } from "./collection.js"
+export { Repository } from "./repository.js"
 export { Database } from "./database.js"
 
 // Export errors
@@ -30,17 +30,17 @@ export {
 } from "./errors.js"
 
 // Example usage:
-/*
-import { Database, Document, NotFoundError } from './index'
+/**
+import { Database, Entity, NotFoundError } from './index'
 
-type User = Document<{
+type User = Entity<{
   name: string
   email: string
   age: number
 }>
 
 const db = new Database('./data')
-const users = db.collection<User>('users')
+const users = db.repository<User>('users')
 
 async function example() {
   try {
@@ -56,14 +56,13 @@ async function example() {
     const found = users.find({
       where: (entry) => entry.value.age > 25 && /^J/.test(entry.value.name),
     })
-
     found.asArray.forEach((user) => console.log(user.name))
   } catch (error) {
     if (error instanceof NotFoundError) {
-      console.error('Document not found:', error.message)
+      console.error('Entity not found:', error.message)
     } else {
       console.error('Operation failed:', error)
     }
   }
 }
-*/
+**/

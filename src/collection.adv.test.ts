@@ -1,8 +1,8 @@
 import { strict as assert } from "node:assert"
 import { after, before, beforeEach, describe, test } from "node:test"
-import { type Collection, Database, type Document } from "./index.js"
+import { type Repository, Database, type Entity } from "./index.js"
 
-interface ComplexUser extends Document {
+interface ComplexUser extends Entity {
 	email: string
 	personalInfo: {
 		firstName: string
@@ -33,12 +33,12 @@ interface ComplexUser extends Document {
 }
 
 const TEST_DB_PATH = "advanced-test-db"
-const COLLECTION_NAME = "complex-users"
+const REPOSITORY_NAME = "complex-users"
 const DATASET_SIZE = 10000
 const BATCH_SIZE = 1000
 
 let db: Database
-let users: Collection<ComplexUser>
+let users: Repository<ComplexUser>
 let testData: Omit<ComplexUser, "_id">[]
 
 function generateTestUser(index: number): Omit<ComplexUser, "_id"> {
@@ -86,24 +86,24 @@ before(async () => {
 		compression: true,
 		pageSize: 8192,
 		overlappingSync: true,
-		maxCollections: 10,
+		maxRepositories: 10,
 	})
-	users = db.collection<ComplexUser>(COLLECTION_NAME)
+	users = db.repository<ComplexUser>(REPOSITORY_NAME)
 	testData = Array(DATASET_SIZE)
 		.fill(null)
 		.map((_, i) => generateTestUser(i))
 })
 
 beforeEach(async () => {
-	await db.clearCollection(COLLECTION_NAME)
+	await db.clearRepository(REPOSITORY_NAME)
 })
 
 after(async () => {
-	await db.dropCollection(COLLECTION_NAME)
+	await db.dropRepository(REPOSITORY_NAME)
 	await db.close()
 })
 
-describe("Advanced Collection Operations", { timeout: 30000 }, async () => {
+describe("Advanced Repository Operations", { timeout: 30000 }, async () => {
 	await test("Batch inserts with data integrity check", async () => {
 		const batches: Promise<ComplexUser[]>[] = []
 		for (let i = 0; i < DATASET_SIZE; i += BATCH_SIZE) {
@@ -167,7 +167,7 @@ describe("Advanced Collection Operations", { timeout: 30000 }, async () => {
 		}
 	})
 
-	await test("Large document handling", async () => {
+	await test("Large entity handling", async () => {
 		const largeUser = {
 			...testData[0],
 			accountDetails: {
