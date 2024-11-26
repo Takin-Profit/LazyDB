@@ -35,12 +35,14 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 	private readonly idGenerator: IdGenerator
 	private readonly logger?: (msg: string) => void
 	private readonly name: string
+	private readonly timestamps: boolean
 
 	constructor(
 		db: LMDBDatabase<T, string>,
 		options: {
 			name: string
 			idGenerator: IdGenerator
+			timestamps?: boolean
 			logger?: (msg: string) => void
 		}
 	) {
@@ -48,9 +50,19 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 		this.db = db
 		this.name = options.name
 		this.idGenerator = options.idGenerator
+		this.timestamps = options.timestamps ?? false
 		this.committed = this.db.committed
 		this.flushed = this.db.flushed
 		this.logger = options.logger
+	}
+
+	// Helper method for timestamps
+	private getTimestamps(isNew = false) {
+		if (!this.timestamps) {
+			return {}
+		}
+		const now = new Date().toISOString()
+		return isNew ? { createdAt: now, updatedAt: now } : { updatedAt: now }
 	}
 
 	/**
@@ -202,13 +214,17 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 	 * @throws {UnknownError} If an unexpected error occurs during the insert operation.
 	 * @fires Repository#entity.inserted
 	 */
-	async insert(doc: Omit<T, "_id">): Promise<T> {
+	async insert(doc: Omit<T, "_id" | "createdAt" | "updatedAt">): Promise<T> {
 		try {
 			// Generate a unique ID for the entity
 			const _id = this.idGenerator()
 
 			// Combine the new ID with the entity
-			const entity = { ...doc, _id } as T
+			const entity = {
+				...doc,
+				_id,
+				...this.getTimestamps(true),
+			} as T
 
 			// Attempt to insert the entity into the database
 			await this.db.put(_id, entity)
@@ -253,7 +269,7 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 				// Insert all entities
 				for (const doc of docs) {
 					const _id = this.idGenerator()
-					const entity = { ...doc, _id } as T
+					const entity = { ...doc, _id, ...this.getTimestamps(true) } as T
 					this.db.put(_id, entity)
 					this.logger?.(`Inserted entity: ${JSON.stringify(entity)}`)
 					results.push(entity)
@@ -310,7 +326,7 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 
 			if (existing) {
 				// Update the entity
-				const updated = { ...existing, ...doc }
+				const updated = { ...existing, ...doc, ...this.getTimestamps() }
 				this.db.put(updated._id, updated)
 
 				// Emit the "entity.upserted" event with wasInsert = false
@@ -361,7 +377,7 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 
 				if (existing) {
 					// Update the entity
-					const updated = { ...existing, ...op.doc }
+					const updated = { ...existing, ...op.doc, ...this.getTimestamps() }
 					this.db.put(updated._id, updated)
 					results.push(updated)
 					updateCount++
@@ -412,7 +428,7 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 				return null // Indicate no update occurred
 			}
 
-			const updatedEntity = { ...existing, ...update }
+			const updatedEntity = { ...existing, ...update, ...this.getTimestamps() }
 
 			try {
 				this.db.put(updatedEntity._id, updatedEntity)
@@ -470,7 +486,7 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 					})
 				}
 
-				const updatedEntity = { ...entity, ...update }
+				const updatedEntity = { ...entity, ...update, ...this.getTimestamps() }
 
 				try {
 					this.db.put(entity._id, updatedEntity)

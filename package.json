@@ -1,6 +1,6 @@
 {
   "name": "@takinprofit/lazydb",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "A modern Node.js embedded database library with advanced querying capabilities.",
   "type": "module",
   "main": "./dist/index.cjs",

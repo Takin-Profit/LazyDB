@@ -41,6 +41,7 @@ export class Database extends TypedEventEmitter<DatabaseEvents> {
 	private readonly maxRepositories: number
 	private readonly idGenerator: IdGenerator
 	private readonly logger?: DatabaseLogger
+	private readonly timestampEnabled: boolean
 
 	/**
 	 * Gets the root database instance.
@@ -56,7 +57,10 @@ export class Database extends TypedEventEmitter<DatabaseEvents> {
 	 * @param {DatabaseConfig} options Configuration options for the database
 	 * @throws {ValidationError} If the database path is not provided
 	 */
-	constructor(path: string, options: DatabaseConfig = {}) {
+	constructor(
+		path: string,
+		options: DatabaseConfig & { timestamps?: boolean } = {}
+	) {
 		super()
 		if (!path) {
 			throw new ValidationError("Database path is required")
@@ -64,6 +68,7 @@ export class Database extends TypedEventEmitter<DatabaseEvents> {
 		this.maxRepositories = options.maxRepositories ?? 12
 		this.idGenerator = options.idGenerator ?? (() => crypto.randomUUID())
 		this.logger = options.logger
+		this.timestampEnabled = options.timestamps ?? false
 
 		this.logger?.("Initializing database")
 		this.rootDb = open({
@@ -88,7 +93,7 @@ export class Database extends TypedEventEmitter<DatabaseEvents> {
 	 */
 	repository<T>(
 		name: string,
-		options?: Partial<SafeDatabaseOptions>
+		options?: Partial<SafeDatabaseOptions & { timestamps?: boolean }>
 	): Repository<Entity<T>> {
 		this.logger?.(`Attempting to create/retrieve repository: ${name}`)
 
@@ -117,6 +122,7 @@ export class Database extends TypedEventEmitter<DatabaseEvents> {
 				name,
 				idGenerator: options?.idGenerator ?? this.idGenerator,
 				logger: this.logger,
+				timestamps: options?.timestamps ?? this.timestampEnabled,
 			})
 			this.repositories.set(name, repository as Repository<Entity<unknown>>)
 			this.emit("repository.created", { name })

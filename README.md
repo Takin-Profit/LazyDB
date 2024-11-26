@@ -43,6 +43,7 @@ LazyDB is a high-performance, type-safe entity database built on top of LMDB (Li
       - [Asynchronous Operations and Error Handling](#asynchronous-operations-and-error-handling)
       - [Advanced Query Patterns](#advanced-query-patterns)
   - [Transactions](#transactions)
+    - [Automatic Timestamps](#automatic-timestamps)
   - [Events](#events)
     - [Database Events](#database-events)
     - [Repository Events](#repository-events)
@@ -139,6 +140,7 @@ const db = new Database('./db-path', {
   maxRepositories: 10,        // Maximum number of repositories (replaces LMDB's maxDbs)
   idGenerator: () => uuid(), // Custom ID generation function
   logger: console.log,       // Optional logging function
+  timestamps: true,          // Enable automatic timestamps
 
   // LMDB options (inherited from lmdb-js)
   compression: true,         // Enable LZ4 compression
@@ -238,6 +240,7 @@ interface DatabaseOptions {
 
   // Feature flags
   useVersions?: boolean                 // Enable entity versioning
+  timestamps?: boolean                  // Enable automatic timestamps
 }
 
 // LazyDB repository options exclude dupSort and add idGenerator
@@ -668,6 +671,76 @@ await users.ifNoExists('unique-email', () => {
     age: 25,
     active: true
   })
+})
+```
+
+### Automatic Timestamps
+
+LazyDB can automatically manage `createdAt` and `updatedAt` timestamps for your entities. When enabled, timestamps are added automatically during insert operations and updated during any modification operations.
+
+To enable automatic timestamps:
+
+```typescript
+// Enable timestamps at database level
+const db = new Database('./db-path', {
+  timestamps: true  // Enable automatic timestamps for all repositories
+})
+
+// Or enable for specific repositories
+const users = db.repository<User>('users', {
+  timestamps: true  // Enable only for this repository
+})
+```
+
+When timestamps are enabled, your entities will automatically include:
+
+- `createdAt`: Set when the entity is first created
+- `updatedAt`: Set on creation and updated on any modification
+
+The Entity type includes optional timestamp fields:
+
+```typescript
+type Entity<T = unknown> = {
+  _id: string
+  createdAt?: string    // ISO 8601 timestamp
+  updatedAt?: string    // ISO 8601 timestamp
+} & T
+```
+
+Timestamps are automatically managed for:
+
+- Single entity operations (insert, update)
+- Bulk operations (insertMany, updateMany)
+- Upsert operations (single and batch)
+
+Example usage:
+
+```typescript
+// With timestamps enabled
+const user = await users.insert({
+  name: 'John Doe',
+  email: 'john@example.com'
+})
+
+console.log(user.createdAt)  // "2024-11-26T10:30:00.000Z"
+console.log(user.updatedAt)  // "2024-11-26T10:30:00.000Z"
+
+// After update
+const updated = await users.updateOne(
+  { where: u => u._id === user._id },
+  { name: 'John Smith' }
+)
+
+console.log(updated.createdAt)  // "2024-11-26T10:30:00.000Z" (unchanged)
+console.log(updated.updatedAt)  // "2024-11-26T10:35:00.000Z" (new timestamp)
+```
+
+The timestamps are stored in ISO 8601 format and can be used for sorting and filtering:
+
+```typescript
+// Find recently updated users
+const recentUsers = users.find({
+  where: user => new Date(user.updatedAt) > new Date(Date.now() - 24 * 60 * 60 * 1000)
 })
 ```
 

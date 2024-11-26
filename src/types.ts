@@ -9,6 +9,8 @@ import type {
  */
 export type Entity<T = unknown> = {
 	_id: string
+	createAt?: string
+	updatedAt?: string
 } & T
 
 /**
