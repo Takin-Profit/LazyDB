@@ -8,7 +8,7 @@ import type {
  * Base entity type
  */
 export type Entity<T = unknown> = {
-	_id: string
+	_id?: string
 	createAt?: string
 	updatedAt?: string
 } & T
