@@ -277,7 +277,7 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 
 				// Verify inserts
 				for (const entity of results) {
-					const verify = this.get(entity._id)
+					const verify = this.get(entity._id ?? "")
 
 					if (!verify) {
 						const errorMsg = `Failed to verify insert for entity with ID ${entity._id}`
@@ -327,7 +327,7 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 			if (existing) {
 				// Update the entity
 				const updated = { ...existing, ...doc, ...this.getTimestamps() }
-				this.db.put(updated._id, updated)
+				this.db.put(updated._id ?? "", updated)
 
 				// Emit the "entity.upserted" event with wasInsert = false
 				this.emit("entity.upserted", {
@@ -378,7 +378,7 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 				if (existing) {
 					// Update the entity
 					const updated = { ...existing, ...op.doc, ...this.getTimestamps() }
-					this.db.put(updated._id, updated)
+					this.db.put(updated._id ?? "", updated)
 					results.push(updated)
 					updateCount++
 				} else {
@@ -431,7 +431,7 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 			const updatedEntity = { ...existing, ...update, ...this.getTimestamps() }
 
 			try {
-				this.db.put(updatedEntity._id, updatedEntity)
+				this.db.put(updatedEntity._id ?? "", updatedEntity)
 			} catch (error) {
 				throw new TransactionError(
 					`Failed to update entity with ID ${updatedEntity._id}`,
@@ -534,7 +534,7 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 			this.logger?.(`Found entity with ID: ${entity._id}. Preparing to remove.`)
 
 			try {
-				this.db.remove(entity._id)
+				this.db.remove(entity._id ?? "")
 				this.logger?.(`Entity with ID ${entity._id} removed from the database.`)
 			} catch (error) {
 				const errorMsg = `Failed to remove entity with ID ${entity._id}.`
@@ -543,7 +543,7 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 			}
 
 			// Verify removal
-			const verify = this.get(entity._id)
+			const verify = this.get(entity._id ?? "")
 			if (verify) {
 				const errorMsg = `Failed to verify removal of entity with ID ${entity._id}. Entity still exists.`
 				this.logger?.(errorMsg)
