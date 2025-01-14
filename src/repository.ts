@@ -66,20 +66,49 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 	}
 
 	/**
-	 * Retrieves a single entity by ID.
+	 * Retrieves a single entity by its ID.
 	 *
-	 * @param {string} id The ID of the entity to retrieve.
-	 * @returns {T | null} The retrieved entity or `null` if not found.
-	 * @throws {UnknownError} If an unexpected error occurs during the operation.
+	 * @param {number} id The ID of the entity to retrieve
+	 * @returns {Entity | null} The entity if found, null otherwise
+	 * @throws {NodeSqliteError} If there's an error executing the query
 	 */
-	get(id: string): T | null {
+	getById(id: number): Entity | null {
+		this.#logger?.(`Getting entity by ID: ${id}`)
+
 		try {
-			const value = this.db.get(id)
-			return value ?? null
+			const stmt = this.#prepareStatement(
+				`SELECT * FROM ${this.#name} WHERE _id = ?`
+			)
+
+			const row = stmt.get(id) as { _id: number; data: Uint8Array } | undefined
+
+			if (!row) {
+				this.#logger?.(`No entity found with ID: ${id}`)
+				return null
+			}
+
+			// Deserialize the data column
+			const deserializedData = this.#serializer.decode(row.data)
+
+			// Combine the _id with the deserialized data
+			return {
+				...deserializedData,
+				_id: row._id,
+			} as Entity
 		} catch (error) {
-			const errorMsg = `Get operation failed for entity ID ${id}: ${error instanceof Error ? error.message : String(error)}`
-			this.logger?.(errorMsg)
-			throw new UnknownError(errorMsg, { original: error })
+			this.#logger?.(
+				`Error getting entity by ID ${id}: ${error instanceof Error ? error.message : String(error)}`
+			)
+			if (error instanceof Error) {
+				throw NodeSqliteError.fromNodeSqlite(error)
+			}
+			throw new NodeSqliteError(
+				"ERR_SQLITE_GET",
+				SqlitePrimaryResultCode.SQLITE_ERROR,
+				"get failed",
+				`Failed to get entity with ID ${id}`,
+				error instanceof Error ? error : undefined
+			)
 		}
 	}
 
@@ -428,7 +457,11 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 				return null // Indicate no update occurred
 			}
 
-			const updatedEntity = { ...existing, ...update, ...this.getTimestamps() }
+			const updatedEntity = {
+				...existing,
+				...update,
+				...this.getTimestamps(),
+			}
 
 			try {
 				this.db.put(updatedEntity._id ?? "", updatedEntity)
@@ -486,7 +519,11 @@ export class Repository<T extends Entity> extends TypedEventEmitter<
 					})
 				}
 
-				const updatedEntity = { ...entity, ...update, ...this.getTimestamps() }
+				const updatedEntity = {
+					...entity,
+					...update,
+					...this.getTimestamps(),
+				}
 
 				try {
 					this.db.put(entity._id, updatedEntity)

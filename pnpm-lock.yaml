@@ -39,6 +39,9 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.19.2
+      type-fest:
+        specifier: ^4.32.0
+        version: 4.32.0
       typescript:
         specifier: ^5.6.3
         version: 5.6.3
@@ -744,6 +747,10 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
+  type-fest@4.32.0:
+    resolution: {integrity: sha512-rfgpoi08xagF3JSdtJlCwMq9DGNDE0IMh3Mkpc1wUypg9vPi786AiqeBBKcqvIkq42azsBM85N490fyZjeUftw==}
+    engines: {node: '>=16'}
+
   typescript@5.6.3:
     resolution: {integrity: sha512-hjcS1mhfuyi4WW8IWtjP7brDrG2cuDZukyrYrSauoXGNgx0S7zceP07adYkJycEr56BOUTNPzbInooiN3fn1qw==}
     engines: {node: '>=14.17'}
@@ -1339,6 +1346,8 @@ snapshots:
       get-tsconfig: 4.8.1
     optionalDependencies:
       fsevents: 2.3.3
+
+  type-fest@4.32.0: {}
 
   typescript@5.6.3: {}
 

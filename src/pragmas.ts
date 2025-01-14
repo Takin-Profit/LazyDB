@@ -40,18 +40,20 @@ export type TempStore = $<typeof TempStore>
 export type LockingMode = $<typeof LockingMode>
 
 // Define the pragma configuration schema
-export const PragmaConfig = object({
-	journalMode: Type.Optional(JournalMode),
-	synchronous: Type.Optional(SynchronousMode),
-	cacheSize: Type.Optional(num()),
-	mmapSize: Type.Optional(num()),
-	tempStore: Type.Optional(TempStore),
-	lockingMode: Type.Optional(LockingMode),
-	busyTimeout: Type.Optional(num()),
-	foreignKeys: Type.Optional(bool()),
-	walAutocheckpoint: Type.Optional(num()),
-	trustedSchema: Type.Optional(bool()),
-})
+export const PragmaConfig = partial(
+	object({
+		journalMode: JournalMode,
+		synchronous: SynchronousMode,
+		cacheSize: num(),
+		mmapSize: num(),
+		tempStore: TempStore,
+		lockingMode: LockingMode,
+		busyTimeout: num(),
+		foreignKeys: bool(),
+		walAutocheckpoint: num(),
+		trustedSchema: bool(),
+	})
+)
 
 // Extract type from schema
 export type PragmaConfig = $<typeof PragmaConfig>
