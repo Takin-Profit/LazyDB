@@ -8,6 +8,7 @@ import {
 	type $,
 	any,
 	array,
+	bigint,
 	bool,
 	func,
 	literal,
@@ -17,7 +18,6 @@ import {
 	optional,
 	record,
 	string,
-	tuple,
 	uint8Array,
 	union,
 	unit,
@@ -25,10 +25,9 @@ import {
 	validate,
 } from "./utils.js"
 import type { StatementSync } from "node:sqlite"
-import type { GroupByTuples } from "./group-by.js"
 
 // Define the SQLite column types
-const SQLiteColumnType = union([
+const LazyDbColumnType = union([
 	literal("TEXT"),
 	literal("INTEGER"),
 	literal("REAL"),
@@ -36,10 +35,10 @@ const SQLiteColumnType = union([
 	literal("BOOLEAN"),
 ])
 
-export type SqliteColumnType = $<typeof SQLiteColumnType>
+export type LazyDbColumnType = $<typeof LazyDbColumnType>
 
 const QueryKeyDef = object({
-	type: SQLiteColumnType,
+	type: LazyDbColumnType,
 	index: optional(union([literal(true), object({ unique: literal(true) })])),
 	nullable: optional(literal(true)),
 	default: optional(any()),
@@ -113,332 +112,27 @@ export type CreateRepositoryOptions<T> = Readonly<{
 	logger?: (msg: string) => void
 }>
 
-const SupportedValue = union([
+export const LazyDbValue = union([
 	string(),
 	num(),
 	bool(),
 	nil(),
 	uint8Array(),
-	array(union([string(), num(), bool(), nil()])),
+	bigint(),
+	array(union([string(), num(), bool(), nil(), bigint()])),
 ])
 
 /**
  * SQLite supported value types for WHERE conditions
  */
-export type SupportedValue = $<typeof SupportedValue>
+export type LazyDbValue = $<typeof LazyDbValue>
 
-const ComparisonOperator = union([
-	literal("="),
-	literal("!="),
-	literal(">"),
-	literal("<"),
-	literal(">="),
-	literal("<="),
-	literal("LIKE"),
-	literal("NOT LIKE"),
-	literal("IN"),
-	literal("NOT IN"),
-	literal("IS"),
-	literal("IS NOT"),
-])
-
-export type ComparisonOperator = $<typeof ComparisonOperator>
-
-const LogicalOperator = union([literal("AND"), literal("OR")])
-
-export type LogicalOperator = $<typeof LogicalOperator>
-
-export const WhereCondition = tuple([
+export const NodeSqliteValue = union([
+	nil(),
+	num(),
+	bigint(),
 	string(),
-	ComparisonOperator,
-	union([SupportedValue, array(SupportedValue)]),
+	uint8Array(),
 ])
 
-type InOperator = "IN" | "NOT IN"
-type NonInOperator = Exclude<ComparisonOperator, InOperator>
-
-export type WhereCondition<T> = {
-	[K in keyof T]: [K, InOperator, T[K][]] | [K, NonInOperator, T[K]]
-}[keyof T]
-
-const WhereClauseResult = object({
-	sql: string(),
-	params: array(SupportedValue),
-})
-
-/**
- * Result of building a WHERE clause
- */
-export type WhereClauseResult = $<typeof WhereClauseResult>
-
-const ComplexWhereCondition = union([
-	tuple([WhereCondition]),
-	tuple([WhereCondition, LogicalOperator, WhereCondition]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-])
-
-type ComplexWhereCondition<T> =
-	| [WhereCondition<T>]
-	| [WhereCondition<T>, LogicalOperator, WhereCondition<T>]
-	| [
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-	  ]
-	| [
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-	  ]
-	| [
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-	  ]
-	| [
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-	  ]
-	| [
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-	  ]
-	| [
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-	  ]
-	| [
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-	  ]
-	| [
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-			LogicalOperator,
-			WhereCondition<T>,
-	  ]
-
-export const Where = union([WhereCondition, ComplexWhereCondition])
-
-/**
- * Union type for all possible WHERE clause inputs
- */
-export type Where<T> = WhereCondition<T> | ComplexWhereCondition<T>
-
-// Update the FindOptionsSchema
-export const FindOptions = object({
-	where: optional(Where),
-	limit: optional(num()),
-	offset: optional(num()),
-	orderBy: optional(record(string(), union([literal("ASC"), literal("DESC")]))),
-	distinct: optional(bool()),
-	groupBy: optional(array(string())),
-})
-
-export type FindOptions<T extends { [key: string]: unknown }> = {
-	where?: Where<T>
-	limit?: number
-	offset?: number
-	orderBy?: T extends {
-		[K in keyof Required<
-			NonNullable<RepositoryOptions<T>["queryKeys"]>
-		>]: unknown
-	}
-		? Partial<
-				Record<
-					keyof NonNullable<RepositoryOptions<T>["queryKeys"]>,
-					"ASC" | "DESC"
-				>
-			>
-		: never
-	distinct?: boolean
-	groupBy?: GroupByTuples<
-		keyof NonNullable<RepositoryOptions<T>["queryKeys"]> & string
-	>
-}
+export type NodeSqliteValue = $<typeof NodeSqliteValue>

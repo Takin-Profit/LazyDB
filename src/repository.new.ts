@@ -2,8 +2,12 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-import type { DatabaseSync, StatementSync } from "node:sqlite"
-import { RepositoryOptions, Where } from "./types.js"
+import type {
+	DatabaseSync,
+	StatementSync,
+	SupportedValueType,
+} from "node:sqlite"
+import { RepositoryOptions } from "./types.js"
 
 import { isValidationErrors, validate } from "./utils.js"
 import {
@@ -11,98 +15,16 @@ import {
 	NodeSqliteError,
 	SqlitePrimaryResultCode,
 } from "./errors.js"
-import type {
-	WhereClauseResult,
-	SupportedValue,
-	FindOptions,
-	QueryKeyDef,
-} from "./types.js"
 
-export function buildWhereClause<T>(where: Where<T>): WhereClauseResult {
-	// Validate the where condition first
-	const validationResult = validate(Where, where)
-	if (isValidationErrors(validationResult)) {
-		throw new NodeSqliteError(
-			"ERR_SQLITE_WHERE",
-			SqlitePrimaryResultCode.SQLITE_MISUSE,
-			"Invalid where clause",
-			`Where clause validation failed: ${validationResult.map((e) => e.message).join(", ")}`,
-			undefined
-		)
-	}
+import type stringifyLib from "fast-safe-stringify"
+import { createRequire } from "node:module"
+import { buildWhereClause } from "./where.js"
+import { type FindOptions, isGroupByArray } from "./find.js"
+const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
+	"fast-safe-stringify"
+).default
 
-	// Handle single condition
-	if (where.length === 3) {
-		const [field, operator, value] = where
-
-		if (operator === "IN" || operator === "NOT IN") {
-			if (!Array.isArray(value)) {
-				throw new NodeSqliteError(
-					"ERR_SQLITE_WHERE",
-					SqlitePrimaryResultCode.SQLITE_MISUSE,
-					"Invalid IN/NOT IN value",
-					`Operator ${operator} requires an array value`,
-					undefined
-				)
-			}
-			const placeholders = value.map(() => "?").join(", ")
-			return {
-				sql: `${String(field)} ${operator} (${placeholders})`,
-				params: value as SupportedValue[],
-			}
-		}
-
-		if (operator === "IS" || operator === "IS NOT") {
-			if (value !== null) {
-				throw new NodeSqliteError(
-					"ERR_SQLITE_WHERE",
-					SqlitePrimaryResultCode.SQLITE_MISUSE,
-					"Invalid IS/IS NOT value",
-					`Operator ${operator} only works with NULL values`,
-					undefined
-				)
-			}
-			return {
-				sql: `${String(field)} ${operator} NULL`,
-				params: [],
-			}
-		}
-
-		return {
-			sql: `${String(field)} ${operator} ?`,
-			params: [value as SupportedValue],
-		}
-	}
-
-	// Handle complex conditions
-	const parts: string[] = []
-	const params: SupportedValue[] = []
-	let currentOperator = "AND"
-
-	for (let i = 0; i < where.length; i++) {
-		const item = where[i]
-
-		if (i % 2 === 1) {
-			// Odd indices should be operators
-			currentOperator = item as string
-			continue
-		}
-
-		// Even indices should be conditions
-		const condition = item as Where<T>
-		const { sql, params: itemParams } = buildWhereClause(condition)
-		parts.push(sql)
-		params.push(...itemParams)
-	}
-
-	return {
-		sql:
-			parts.length > 1 ? `(${parts.join(` ${currentOperator} `)})` : parts[0],
-		params,
-	}
-}
-
-class Repository<T extends { [key: string]: unknown }> {
+export class Repository<T extends { [key: string]: unknown }> {
 	readonly #db: DatabaseSync
 	readonly #prepareStatement: (sql: string) => StatementSync
 	readonly #logger?: (msg: string) => void
@@ -209,15 +131,14 @@ class Repository<T extends { [key: string]: unknown }> {
 
 	find(options: FindOptions<T>): T[] {
 		this.#logger?.(
-			`Starting find operation with options: ${JSON.stringify(options)}`
+			`Starting find operation with options: ${stringify(options)}`
 		)
 
 		try {
 			// Start building the SQL query
 			let sql = `SELECT * FROM ${this.#name}`
-			const params: unknown[] = []
+			const params: SupportedValueType[] = []
 
-			// Add WHERE clause if provided
 			if (options.where) {
 				const whereClause = buildWhereClause(options.where)
 				sql += ` WHERE ${whereClause.sql}`
@@ -225,8 +146,8 @@ class Repository<T extends { [key: string]: unknown }> {
 			}
 
 			// Add GROUP BY clause if provided
-			if (options.group && options.group.length > 0) {
-				sql += ` GROUP BY ${options.group.join(", ")}`
+			if (options.groupBy && isGroupByArray(options.groupBy)) {
+				sql += ` GROUP BY ${(options.groupBy as Array<T>).join(", ")}`
 			}
 
 			// Add ORDER BY clause if provided
@@ -256,7 +177,7 @@ class Repository<T extends { [key: string]: unknown }> {
 			}
 
 			this.#logger?.(
-				`Executing query: ${sql} with params: ${JSON.stringify(params)}`
+				`Executing query: ${sql} with params: ${stringify(params)}`
 			)
 
 			const stmt = this.#prepareStatement(sql)
@@ -275,7 +196,9 @@ class Repository<T extends { [key: string]: unknown }> {
 					} as T
 				} catch (error) {
 					this.#logger?.(
-						`Failed to deserialize data: ${error instanceof Error ? error.message : String(error)}`
+						`Failed to deserialize data: ${
+							error instanceof Error ? error.message : String(error)
+						}`
 					)
 					throw new NodeSqliteError(
 						"ERR_SQLITE_DESERIALIZE",
@@ -294,7 +217,9 @@ class Repository<T extends { [key: string]: unknown }> {
 
 			// Handle unexpected errors
 			this.#logger?.(
-				`Unexpected error during find operation: ${error instanceof Error ? error.message : String(error)}`
+				`Unexpected error during find operation: ${
+					error instanceof Error ? error.message : String(error)
+				}`
 			)
 			throw new NodeSqliteError(
 				"ERR_SQLITE_FIND",

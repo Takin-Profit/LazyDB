@@ -1,8 +1,11 @@
 {
     "cSpell.words": [
+        "AUTOINCREMENT",
+        "CANTOPEN",
         "lazydb",
         "lmdb",
         "msgpack",
+        "NOTADB",
         "pkgroll",
         "takinprofit",
         "upserted"
