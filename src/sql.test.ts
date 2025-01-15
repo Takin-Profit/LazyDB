@@ -10,7 +10,12 @@ import test from "node:test"
 import assert from "node:assert"
 import fc from "fast-check"
 import type { LazyDbColumnType, QueryKeys } from "./types.js"
-import { buildCreateTableSQL, createIndexes, toSqliteValue } from "./sql.js"
+import {
+	buildCreateTableSQL,
+	buildInsertQuery,
+	createIndexes,
+	toSqliteValue,
+} from "./sql.js"
 
 test("toSqliteValue - TEXT type handling", async (t) => {
 	await t.test("accepts valid string values", () => {
@@ -301,7 +306,7 @@ test("buildCreateTableSQL", async (t) => {
 		const sql = buildCreateTableSQL("test_table")
 		assert.strictEqual(
 			sql,
-			"CREATE TABLE IF NOT EXISTS test_table (_id INTEGER PRIMARY KEY AUTOINCREMENT, data BLOB)"
+			"CREATE TABLE IF NOT EXISTS test_table (_id INTEGER PRIMARY KEY AUTOINCREMENT, __lazy_data BLOB)"
 		)
 	})
 
@@ -321,7 +326,7 @@ test("buildCreateTableSQL", async (t) => {
 				"name TEXT NOT NULL, " +
 				"age INTEGER NOT NULL, " +
 				"active BOOLEAN NOT NULL, " +
-				"data BLOB)"
+				"__lazy_data BLOB)"
 		)
 	})
 
@@ -346,7 +351,8 @@ test("buildCreateTableSQL", async (t) => {
 
 		const sql = buildCreateTableSQL(
 			"test_table",
-			queryKeys as QueryKeys<unknown>
+			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+			queryKeys as QueryKeys<any>
 		)
 		assert.ok(sql.includes("name TEXT DEFAULT 'unnamed'"))
 		assert.ok(sql.includes("count INTEGER DEFAULT 0"))
@@ -361,7 +367,8 @@ test("buildCreateTableSQL", async (t) => {
 
 		const sql = buildCreateTableSQL(
 			"test_table",
-			queryKeys as QueryKeys<unknown>
+			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+			queryKeys as QueryKeys<any>
 		)
 		assert.ok(sql.includes("email TEXT NOT NULL UNIQUE"))
 		assert.ok(sql.includes("username TEXT NOT NULL UNIQUE"))
@@ -377,7 +384,8 @@ test("createIndexes", async (t) => {
 
 		const statements = createIndexes(
 			"test_table",
-			queryKeys as QueryKeys<unknown>
+			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+			queryKeys as QueryKeys<any>
 		)
 
 		console.log(`actual statements: ${statements}`)
@@ -399,7 +407,8 @@ test("createIndexes", async (t) => {
 
 		const statements = createIndexes(
 			"test_table",
-			queryKeys as QueryKeys<unknown>
+			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+			queryKeys as QueryKeys<any>
 		)
 		assert.strictEqual(statements.length, 3)
 		assert.ok(
@@ -438,7 +447,8 @@ test("buildCreateTableSQL validations", async (t) => {
 			field2: { type: "INTEGER" },
 		}
 
-		const sql = buildCreateTableSQL(tableName, queryKeys as QueryKeys<unknown>)
+		// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+		const sql = buildCreateTableSQL(tableName, queryKeys as QueryKeys<any>)
 		assert.ok(sql.includes("field1"))
 		assert.ok(sql.includes("field2"))
 	})
@@ -450,11 +460,133 @@ test("buildCreateTableSQL validations", async (t) => {
 			field2: { type: "INTEGER" },
 		}
 
-		const statements = createIndexes(tableName, queryKeys as QueryKeys<unknown>)
+		// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+		const statements = createIndexes(tableName, queryKeys as QueryKeys<any>)
 		assert.strictEqual(statements.length, 2)
 		assert.ok(statements[0].includes("field1"))
 		assert.ok(statements[0].includes("UNIQUE"))
 		assert.ok(statements[1].includes("field2"))
 		assert.ok(!statements[1].includes("UNIQUE"))
+	})
+})
+
+test("buildInsertQuery", async (t) => {
+	const tableName = "test_table"
+
+	await t.test("should build basic insert query", () => {
+		const entity = { name: "test" }
+		const result = buildInsertQuery(tableName, entity)
+
+		assert.equal(result.sql, "INSERT INTO test_table (__lazy_data) VALUES (?)")
+		assert.equal(result.values.length, 0)
+	})
+
+	await t.test("should include queryable fields when provided", () => {
+		interface TestEntity {
+			name: string
+			age: number
+			active: boolean
+		}
+
+		const queryKeys: QueryKeys<TestEntity> = {
+			name: { type: "TEXT" },
+			age: { type: "INTEGER" },
+			active: { type: "BOOLEAN" },
+		}
+
+		const entity: TestEntity = {
+			name: "John",
+			age: 30,
+			active: true,
+		}
+
+		const result = buildInsertQuery(tableName, entity, queryKeys)
+
+		assert.equal(
+			result.sql,
+			"INSERT INTO test_table (name, age, active, __lazy_data) VALUES (?, ?, ?, ?)"
+		)
+		assert.equal(result.values.length, 3)
+		assert.equal(result.values[0], "John")
+		assert.equal(result.values[1], 30)
+		assert.equal(result.values[2], 1) // boolean true converts to 1
+	})
+
+	await t.test("should handle missing optional fields", () => {
+		interface TestEntity {
+			name?: string
+			age?: number
+		}
+
+		const queryKeys: QueryKeys<TestEntity> = {
+			name: { type: "TEXT" },
+			age: { type: "INTEGER" },
+		}
+
+		const entity: Partial<TestEntity> = {
+			name: "John",
+			// age is omitted
+		}
+
+		const result = buildInsertQuery(tableName, entity, queryKeys)
+
+		assert.equal(
+			result.sql,
+			"INSERT INTO test_table (name, __lazy_data) VALUES (?, ?)"
+		)
+		assert.equal(result.values.length, 1)
+		assert.equal(result.values[0], "John")
+	})
+
+	await t.test("should handle nullable fields", () => {
+		interface TestEntity {
+			name: string | null
+			age: number | null
+		}
+
+		const queryKeys: QueryKeys<TestEntity> = {
+			name: { type: "TEXT", nullable: true },
+			age: { type: "INTEGER", nullable: true },
+		}
+
+		const entity: TestEntity = {
+			name: null,
+			age: null,
+		}
+
+		const result = buildInsertQuery(tableName, entity, queryKeys)
+
+		assert.equal(
+			result.sql,
+			"INSERT INTO test_table (name, age, __lazy_data) VALUES (?, ?, ?)"
+		)
+		assert.equal(result.values.length, 2)
+		assert.equal(result.values[0], null)
+		assert.equal(result.values[1], null)
+	})
+
+	await t.test("should ignore fields not in queryKeys", () => {
+		interface TestEntity {
+			name: string
+			extraField: string // not in queryKeys
+		}
+
+		const queryKeys: QueryKeys<TestEntity> = {
+			name: { type: "TEXT" },
+		}
+
+		const entity: TestEntity = {
+			name: "John",
+			extraField: "should not be included",
+		}
+
+		const result = buildInsertQuery(tableName, entity, queryKeys)
+
+		assert.equal(
+			result.sql,
+			"INSERT INTO test_table (name, __lazy_data) VALUES (?, ?)"
+		)
+		assert.equal(result.values.length, 1)
+		assert.equal(result.values[0], "John")
 	})
 })

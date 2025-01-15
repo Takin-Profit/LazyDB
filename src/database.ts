@@ -13,11 +13,11 @@ import {
 } from "./errors.js"
 import { validate, isValidationErrors } from "./utils.js"
 import {
+	RepositoryOptions,
 	type SerializerOptions,
 	type DatabaseOptions,
 	DatabaseOptions as DatabaseOptionsSchema,
 	SerializerOptions as SerializerOptionsSchema,
-	type RepositoryOptions,
 	type QueryKeys,
 	type EntityType,
 } from "./types.js"
@@ -123,6 +123,18 @@ class LazyDb {
 	): Repository<T> {
 		this.#logger?.(`Creating repository: ${name}`)
 
+		const result = validate(RepositoryOptions, options)
+
+		if (isValidationErrors(result)) {
+			throw new NodeSqliteError(
+				"ERR_SQLITE_REPOSITORY",
+				SqlitePrimaryResultCode.SQLITE_MISUSE,
+				"Invalid repository options",
+				`Repository options validation failed: ${result.map((e) => e.message).join(", ")}`,
+				undefined
+			)
+		}
+
 		// Validate repository name
 		if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
 			throw new NodeSqliteError(
@@ -135,7 +147,11 @@ class LazyDb {
 		}
 
 		// Build CREATE TABLE statement
-		const createTableSQL = this.#buildCreateTableSQL(name, options?.queryKeys)
+		const createTableSQL = this.#buildCreateTableSQL(
+			name,
+			options?.queryKeys,
+			options?.timestamps ?? this.#timestampEnabled
+		)
 
 		try {
 			// Create table if not exists
@@ -170,9 +186,10 @@ class LazyDb {
 
 	#buildCreateTableSQL<T extends EntityType>(
 		name: string,
-		queryKeys?: QueryKeys<T>
+		queryKeys?: QueryKeys<T>,
+		timestamps = false
 	): string {
-		return buildCreateTableSQL(name, queryKeys)
+		return buildCreateTableSQL(name, queryKeys, timestamps)
 	}
 
 	#createIndexes<T extends EntityType>(

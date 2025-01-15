@@ -2,8 +2,18 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-import type { DatabaseSync, StatementSync } from "node:sqlite"
-import { type EntityType, RepositoryOptions } from "./types.js"
+import type {
+	DatabaseSync,
+	StatementSync,
+	SupportedValueType,
+} from "node:sqlite"
+import {
+	type Entity,
+	type EntityType,
+	isQueryKeyDef,
+	type LazyDbValue,
+	RepositoryOptions,
+} from "./types.js"
 
 import { isValidationErrors, validate } from "./utils.js"
 import {
@@ -15,6 +25,7 @@ import {
 import type stringifyLib from "fast-safe-stringify"
 import { createRequire } from "node:module"
 import { buildFindQuery, type FindOptions } from "./find.js"
+import { buildInsertQuery, toSqliteValue } from "./sql.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -65,10 +76,10 @@ export class Repository<T extends EntityType> {
 	 * Retrieves a single entity by its ID.
 	 *
 	 * @param {number} id The ID of the entity to retrieve
-	 * @returns {T | null} The entity if found, null otherwise
+	 * @returns {Entity<T> | null} The entity if found, null otherwise
 	 * @throws {NodeSqliteError} If there's an error executing the query
 	 */
-	findById(id: number): T | null {
+	findById(id: number): Entity<T> | null {
 		this.#logger?.(`Selecting row from ${this.#name} by ID: ${id}`)
 
 		try {
@@ -76,7 +87,9 @@ export class Repository<T extends EntityType> {
 				`SELECT * FROM ${this.#name} WHERE _id = ?`
 			)
 
-			const row = stmt.get(id) as { _id: number; data: Uint8Array } | undefined
+			const row = stmt.get(id) as
+				| { _id: number; __lazy_data: Uint8Array }
+				| undefined
 
 			if (!row) {
 				this.#logger?.(`No row found with ID: ${id}`)
@@ -85,7 +98,7 @@ export class Repository<T extends EntityType> {
 
 			try {
 				// Attempt to deserialize the data column
-				const deserializedData = this.#serializer.decode(row.data) as T
+				const deserializedData = this.#serializer.decode(row.__lazy_data) as T
 
 				// Combine the _id with the deserialized data
 				return {
@@ -124,7 +137,7 @@ export class Repository<T extends EntityType> {
 		}
 	}
 
-	find(options: FindOptions<T>): T[] {
+	find(options: FindOptions<T>): Entity<T>[] {
 		this.#logger?.(
 			`Starting find operation with options: ${stringify(options)}`
 		)
@@ -143,13 +156,13 @@ export class Repository<T extends EntityType> {
 			const stmt = this.#prepareStatement(sql)
 			const rows = stmt.all(...params) as Array<{
 				_id: number
-				data: Uint8Array
+				__lazy_data: Uint8Array
 			}>
 
 			// Deserialize each row
 			return rows.map((row) => {
 				try {
-					const deserializedData = this.#serializer.decode(row.data) as T
+					const deserializedData = this.#serializer.decode(row.__lazy_data) as T
 					return {
 						...deserializedData,
 						_id: row._id,
@@ -186,6 +199,49 @@ export class Repository<T extends EntityType> {
 				SqlitePrimaryResultCode.SQLITE_ERROR,
 				"find operation failed",
 				"Unexpected error during find operation",
+				error instanceof Error ? error : undefined
+			)
+		}
+	}
+
+	findOne(options: Pick<FindOptions<T>, "where">): Entity<T> | null {
+		const result = this.find({ ...options, limit: 1 })
+		return result.length > 0 ? result[0] : null
+	}
+
+	insert(entity: T): Entity<T> {
+		try {
+			this.#logger?.(`Inserting entity into ${this.#name}`)
+
+			const serializedData = this.#serializer.encode(entity)
+			const { sql, values } = buildInsertQuery(
+				this.#name,
+				entity,
+				this.#queryKeys
+			)
+			const stmt = this.#prepareStatement(sql)
+			const result = stmt.run(...values, serializedData)
+
+			// Return the inserted entity with its new ID
+			return {
+				...entity,
+				_id: Number(result.lastInsertRowid),
+			} as Entity<T>
+		} catch (error) {
+			// Handle SQLite-specific errors
+			if (isNodeSqliteError(error)) {
+				throw error
+			}
+
+			// Handle unexpected errors
+			this.#logger?.(
+				`Unexpected error during insert operation: ${error instanceof Error ? error.message : String(error)}`
+			)
+			throw new NodeSqliteError(
+				"ERR_SQLITE_INSERT",
+				SqlitePrimaryResultCode.SQLITE_ERROR,
+				"insert operation failed",
+				"Unexpected error during insert operation",
 				error instanceof Error ? error : undefined
 			)
 		}

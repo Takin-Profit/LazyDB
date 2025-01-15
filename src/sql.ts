@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+import type { SupportedValueType } from "node:sqlite"
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
 import {
 	type EntityType,
@@ -16,7 +17,8 @@ import { isValidationErrors } from "./utils.js"
 
 export function buildCreateTableSQL<T extends EntityType>(
 	name: string,
-	queryKeys?: QueryKeys<T>
+	queryKeys?: QueryKeys<T>,
+	timestamps = false
 ): string {
 	// biome-ignore lint/style/noUnusedTemplateLiteral: <explanation>
 	const columns = [`_id INTEGER PRIMARY KEY AUTOINCREMENT`]
@@ -61,8 +63,14 @@ export function buildCreateTableSQL<T extends EntityType>(
 		}
 	}
 
+	if (timestamps) {
+		// Add createdAt and updatedAt columns
+		columns.push("createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP")
+		columns.push("updatedAt TEXT")
+	}
+
 	// Add data BLOB column for non-queryable fields
-	columns.push("data BLOB")
+	columns.push("__lazy_data BLOB")
 
 	return `CREATE TABLE IF NOT EXISTS ${name} (${columns.join(", ")})`
 }
@@ -84,6 +92,10 @@ export function toSqliteValue(
 	value: LazyDbValue,
 	columnType: LazyDbColumnType
 ): NodeSqliteValue {
+	if (value === null) {
+		return null
+	}
+
 	switch (columnType) {
 		case "TEXT": {
 			if (typeof value !== "string") {
@@ -127,4 +139,41 @@ export function toSqliteValue(
 		default:
 			throw new TypeError(`Unsupported SQLite column type: ${columnType}`)
 	}
+}
+
+interface InsertQueryResult {
+	sql: string
+	values: SupportedValueType[]
+}
+
+export function buildInsertQuery<T extends Record<string, unknown> | object>(
+	tableName: string,
+	entity: Omit<T, "_id" | "createdAt" | "updatedAt">,
+	queryKeys?: QueryKeys<T>
+): InsertQueryResult {
+	const columns: string[] = []
+	const values: SupportedValueType[] = []
+	const placeholders: string[] = []
+
+	// Add queryable fields if they exist
+	if (queryKeys) {
+		for (const [field, def] of Object.entries(queryKeys)) {
+			const value =
+				entity[field as keyof Omit<T, "_id" | "createdAt" | "updatedAt">]
+			if (field in entity && isQueryKeyDef(def) && value !== undefined) {
+				columns.push(field)
+				values.push(toSqliteValue(value as unknown as LazyDbValue, def.type))
+				placeholders.push("?")
+			}
+		}
+	}
+
+	// Add the serialized data column
+	columns.push("__lazy_data")
+	placeholders.push("?")
+
+	// Build INSERT query
+	const sql = `INSERT INTO ${tableName} (${columns.join(", ")}) VALUES (${placeholders.join(", ")})`
+
+	return { sql, values }
 }
