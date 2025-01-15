@@ -9,8 +9,8 @@
 import test from "node:test"
 import assert from "node:assert"
 import fc from "fast-check"
-import { toSqliteValue } from "./utils.js"
-import type { LazyDbColumnType } from "./types.js"
+import type { LazyDbColumnType, QueryKeys } from "./types.js"
+import { buildCreateTableSQL, createIndexes, toSqliteValue } from "./sql.js"
 
 test("toSqliteValue - TEXT type handling", async (t) => {
 	await t.test("accepts valid string values", () => {
@@ -294,4 +294,167 @@ test("toSqliteValue - Comprehensive Type Checks", async (t) => {
 			})
 		}
 	}
+})
+
+test("buildCreateTableSQL", async (t) => {
+	await t.test("creates basic table without query keys", () => {
+		const sql = buildCreateTableSQL("test_table")
+		assert.strictEqual(
+			sql,
+			"CREATE TABLE IF NOT EXISTS test_table (_id INTEGER PRIMARY KEY AUTOINCREMENT, data BLOB)"
+		)
+	})
+
+	await t.test("creates table with query keys", () => {
+		const queryKeys: QueryKeys<{ name: string; age: number; active: boolean }> =
+			{
+				name: { type: "TEXT" },
+				age: { type: "INTEGER" },
+				active: { type: "BOOLEAN" },
+			}
+
+		const sql = buildCreateTableSQL("test_table", queryKeys)
+		assert.strictEqual(
+			sql,
+			"CREATE TABLE IF NOT EXISTS test_table " +
+				"(_id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+				"name TEXT NOT NULL, " +
+				"age INTEGER NOT NULL, " +
+				"active BOOLEAN NOT NULL, " +
+				"data BLOB)"
+		)
+	})
+
+	await t.test("handles NOT NULL constraint", () => {
+		const queryKeys: QueryKeys<{ required: string; optional: string }> = {
+			required: { type: "TEXT" },
+			optional: { type: "TEXT", nullable: true },
+		}
+
+		const sql = buildCreateTableSQL("test_table", queryKeys)
+		assert.ok(sql.includes("required TEXT NOT NULL"))
+		assert.ok(sql.includes("optional TEXT"))
+		assert.ok(!sql.includes("optional TEXT NOT NULL"))
+	})
+
+	await t.test("handles DEFAULT values", () => {
+		const queryKeys = {
+			name: { type: "TEXT", default: "unnamed", nullable: true },
+			count: { type: "INTEGER", default: 0, nullable: true },
+			active: { type: "BOOLEAN", default: true, nullable: true },
+		}
+
+		const sql = buildCreateTableSQL(
+			"test_table",
+			queryKeys as QueryKeys<unknown>
+		)
+		assert.ok(sql.includes("name TEXT DEFAULT 'unnamed'"))
+		assert.ok(sql.includes("count INTEGER DEFAULT 0"))
+		assert.ok(sql.includes("active BOOLEAN DEFAULT true"))
+	})
+
+	await t.test("handles UNIQUE constraint", () => {
+		const queryKeys = {
+			email: { type: "TEXT", unique: true },
+			username: { type: "TEXT", unique: true },
+		}
+
+		const sql = buildCreateTableSQL(
+			"test_table",
+			queryKeys as QueryKeys<unknown>
+		)
+		assert.ok(sql.includes("email TEXT NOT NULL UNIQUE"))
+		assert.ok(sql.includes("username TEXT NOT NULL UNIQUE"))
+	})
+})
+
+test("createIndexes", async (t) => {
+	await t.test("creates basic indexes", () => {
+		const queryKeys = {
+			field1: { type: "TEXT" },
+			field2: { type: "INTEGER" },
+		}
+
+		const statements = createIndexes(
+			"test_table",
+			queryKeys as QueryKeys<unknown>
+		)
+
+		console.log(`actual statements: ${statements}`)
+		assert.strictEqual(statements.length, 2)
+		assert.ok(
+			statements[0].includes("CREATE INDEX IF NOT EXISTS idx_test_table_field1")
+		)
+		assert.ok(
+			statements[1].includes("CREATE INDEX IF NOT EXISTS idx_test_table_field2")
+		)
+	})
+
+	await t.test("creates unique indexes", () => {
+		const queryKeys = {
+			email: { type: "TEXT", unique: true },
+			username: { type: "TEXT", unique: true },
+			name: { type: "TEXT" },
+		}
+
+		const statements = createIndexes(
+			"test_table",
+			queryKeys as QueryKeys<unknown>
+		)
+		assert.strictEqual(statements.length, 3)
+		assert.ok(
+			statements.some(
+				(sql) => sql.includes("CREATE UNIQUE INDEX") && sql.includes("email")
+			)
+		)
+		assert.ok(
+			statements.some(
+				(sql) => sql.includes("CREATE UNIQUE INDEX") && sql.includes("username")
+			)
+		)
+		assert.ok(
+			statements.some(
+				(sql) =>
+					sql.includes("CREATE INDEX") &&
+					!sql.includes("UNIQUE") &&
+					sql.includes("name")
+			)
+		)
+	})
+})
+
+test("buildCreateTableSQL validations", async (t) => {
+	await t.test("includes table names in SQL", () => {
+		const tableName = "test_table"
+		const sql = buildCreateTableSQL(tableName)
+		assert.ok(sql.includes(tableName))
+		assert.ok(sql.startsWith("CREATE TABLE IF NOT EXISTS"))
+	})
+
+	await t.test("includes all query key columns", () => {
+		const tableName = "test_table"
+		const queryKeys = {
+			field1: { type: "TEXT" },
+			field2: { type: "INTEGER" },
+		}
+
+		const sql = buildCreateTableSQL(tableName, queryKeys as QueryKeys<unknown>)
+		assert.ok(sql.includes("field1"))
+		assert.ok(sql.includes("field2"))
+	})
+
+	await t.test("validates index creation SQL", () => {
+		const tableName = "test_table"
+		const queryKeys = {
+			field1: { type: "TEXT", unique: true },
+			field2: { type: "INTEGER" },
+		}
+
+		const statements = createIndexes(tableName, queryKeys as QueryKeys<unknown>)
+		assert.strictEqual(statements.length, 2)
+		assert.ok(statements[0].includes("field1"))
+		assert.ok(statements[0].includes("UNIQUE"))
+		assert.ok(statements[1].includes("field2"))
+		assert.ok(!statements[1].includes("UNIQUE"))
+	})
 })

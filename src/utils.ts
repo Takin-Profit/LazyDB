@@ -5,7 +5,6 @@
 import { type TSchema, type Static, Type } from "@sinclair/typebox"
 import { AssertError, Value } from "@sinclair/typebox/value"
 import type { ValueError } from "@sinclair/typebox/errors"
-import type { LazyDbColumnType, LazyDbValue, NodeSqliteValue } from "./types.js"
 
 /**
  * Capitalizes the first letter of a string and converts the rest to lowercase
@@ -34,6 +33,7 @@ export function isValidationError(value: unknown): value is ValidationError {
 		typeof value === "object" &&
 		value !== null &&
 		"type" in value &&
+		"message" in value &&
 		value.type === "validationError"
 	)
 }
@@ -148,52 +148,3 @@ export const buffer = () =>
 	])
 
 export type $<T extends TSchema> = Static<T>
-
-export function toSqliteValue(
-	value: LazyDbValue,
-	columnType: LazyDbColumnType
-): NodeSqliteValue {
-	switch (columnType) {
-		case "TEXT": {
-			if (typeof value !== "string") {
-				throw new TypeError(`Invalid value for TEXT: ${value}`)
-			}
-			return value
-		}
-
-		case "INTEGER": {
-			if (typeof value === "number") {
-				if (!Number.isInteger(value)) {
-					throw new TypeError(
-						`Invalid value for INTEGER: ${value} (must be an integer)`
-					)
-				}
-				return value
-			}
-			if (typeof value === "bigint") {
-				return value
-			}
-			if (typeof value === "boolean") {
-				return value ? 1 : 0
-			}
-			throw new TypeError(`Invalid value for INTEGER: ${value}`)
-		}
-
-		case "REAL": {
-			if (typeof value !== "number") {
-				throw new TypeError(`Invalid value for REAL: ${value}`)
-			}
-			return value
-		}
-
-		case "BOOLEAN": {
-			if (typeof value !== "boolean") {
-				throw new TypeError(`Invalid value for BOOLEAN: ${value}`)
-			}
-			return value ? 1 : 0
-		}
-
-		default:
-			throw new TypeError(`Unsupported SQLite column type: ${columnType}`)
-	}
-}

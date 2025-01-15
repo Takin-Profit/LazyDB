@@ -3,6 +3,7 @@
 // license that can be found in the LICENSE file.
 
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
+import { toSqliteValue } from "./sql.js"
 import { LazyDbValue, NodeSqliteValue, type QueryKeys } from "./types.js"
 import {
 	type $,
@@ -11,7 +12,6 @@ import {
 	literal,
 	object,
 	string,
-	toSqliteValue,
 	tuple,
 	union,
 	validate,

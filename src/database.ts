@@ -599,4 +599,4 @@ class LazyDb {
 	}
 }
 
-export { LazyDb }
+export default LazyDb

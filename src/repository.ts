@@ -26,7 +26,9 @@ import {
  * @event entities.upserted Fired when multiple entities are upserted.
  * @event repository.closed Fired when the repository is closed.
  */
-export class Repository<T extends Entity> extends TypedEventEmitter<
+export class Repository<
+	T extends { [key: string]: unknown },
+> extends TypedEventEmitter<
 	RepositoryEvents<T> & { "repository.closed": { name: string } }
 > {
 	private readonly db: LMDBDatabase<T, string>
