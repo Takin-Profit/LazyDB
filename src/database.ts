@@ -18,9 +18,7 @@ import {
 	DatabaseOptions as DatabaseOptionsSchema,
 	SerializerOptions as SerializerOptionsSchema,
 	type RepositoryOptions,
-	validateQueryKeys,
 	type QueryKeys,
-	isQueryKeyDef,
 } from "./types.js"
 import { Repository } from "./repository.new.js"
 import {
@@ -29,6 +27,7 @@ import {
 	type CacheStats,
 } from "./cache.js"
 import type stringifyLib from "fast-safe-stringify"
+import { buildCreateTableSQL, createIndexes } from "./sql.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -169,71 +168,20 @@ class LazyDb {
 	}
 
 	#buildCreateTableSQL<T>(name: string, queryKeys?: QueryKeys<T>): string {
-		// biome-ignore lint/style/noUnusedTemplateLiteral: <explanation>
-		const columns = [`_id INTEGER PRIMARY KEY AUTOINCREMENT`]
-
-		if (queryKeys) {
-			// Validate query keys schema
-			const validationResult = validateQueryKeys({ queryKeys })
-			if (isValidationErrors(validationResult)) {
-				throw new NodeSqliteError(
-					"ERR_SQLITE_SCHEMA",
-					SqlitePrimaryResultCode.SQLITE_SCHEMA,
-					"Invalid query keys schema",
-					`Schema validation failed: ${validationResult.map((e) => e.message).join(", ")}`,
-					undefined
-				)
-			}
-
-			// Add columns for queryable fields
-			for (const [field, def] of Object.entries(queryKeys)) {
-				const constraints: string[] = []
-
-				if (isQueryKeyDef(def)) {
-					if (!def.nullable) {
-						constraints.push("NOT NULL")
-					}
-					if (def.default !== undefined) {
-						constraints.push(
-							`DEFAULT ${
-								typeof def.default === "string"
-									? `'${def.default}'`
-									: def.default
-							}`
-						)
-					}
-
-					// If index.unique is true, add UNIQUE constraint
-					if (def.unique) {
-						constraints.push("UNIQUE")
-					}
-					columns.push(
-						`${field} ${def.type}${constraints.length ? ` ${constraints.join(" ")}` : ""}`
-					)
-				}
-			}
-		}
-
-		// Add data BLOB column for non-queryable fields
-		columns.push("data BLOB")
-
-		return `CREATE TABLE IF NOT EXISTS ${name} (${columns.join(", ")})`
+		return buildCreateTableSQL(name, queryKeys)
 	}
 
 	#createIndexes<T extends { [key: string]: unknown }>(
 		name: string,
 		queryKeys: QueryKeys<T>
 	): void {
-		for (const [field, def] of Object.entries(queryKeys)) {
-			const indexName = `idx_${name}_${field}`
-			const indexType = def?.unique ? "UNIQUE" : ""
-			const sql = `CREATE ${indexType} INDEX IF NOT EXISTS ${indexName} ON ${name}(${field})`
-
+		const statements = createIndexes(name, queryKeys)
+		for (const sql of statements) {
 			try {
 				this.#db.exec(sql)
 			} catch (error) {
 				this.#logger?.(
-					`Failed to create index ${indexName}: ${error instanceof Error ? error.message : String(error)}`
+					`Failed to create index: ${error instanceof Error ? error.message : String(error)}`
 				)
 				throw error instanceof NodeSqliteError
 					? error

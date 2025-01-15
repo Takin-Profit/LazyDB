@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-import { createRequire } from "node:module"
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
 import {
 	isQueryKeyDef,
@@ -14,10 +13,6 @@ import {
 } from "./types.js"
 import { isValidationErrors } from "./utils.js"
 
-import type stringifyLib from "fast-safe-stringify"
-const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
-	"fast-safe-stringify"
-).default
 export function buildCreateTableSQL<T>(
 	name: string,
 	queryKeys?: QueryKeys<T>
@@ -29,7 +24,6 @@ export function buildCreateTableSQL<T>(
 		// Validate query keys schema
 		const validationResult = validateQueryKeys({ queryKeys })
 		if (isValidationErrors(validationResult)) {
-			console.log(`invalid query keys schema: ${stringify(validationResult)}`)
 			throw new NodeSqliteError(
 				"ERR_SQLITE_SCHEMA",
 				SqlitePrimaryResultCode.SQLITE_SCHEMA,
@@ -41,7 +35,6 @@ export function buildCreateTableSQL<T>(
 
 		// Add columns for queryable fields
 		for (const [field, def] of Object.entries(queryKeys)) {
-			console.log(`field: ${field}, def: ${def}`)
 			const constraints: string[] = []
 
 			if (isQueryKeyDef(def)) {
