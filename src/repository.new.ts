@@ -2,18 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-import type {
-	DatabaseSync,
-	StatementSync,
-	SupportedValueType,
-} from "node:sqlite"
-import {
-	type Entity,
-	type EntityType,
-	isQueryKeyDef,
-	type LazyDbValue,
-	RepositoryOptions,
-} from "./types.js"
+import type { DatabaseSync, StatementSync } from "node:sqlite"
+import { type Entity, type EntityType, RepositoryOptions } from "./types.js"
 
 import { isValidationErrors, validate } from "./utils.js"
 import {
@@ -25,7 +15,7 @@ import {
 import type stringifyLib from "fast-safe-stringify"
 import { createRequire } from "node:module"
 import { buildFindQuery, type FindOptions } from "./find.js"
-import { buildInsertQuery, toSqliteValue } from "./sql.js"
+import { buildInsertQuery } from "./sql.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -88,7 +78,12 @@ export class Repository<T extends EntityType> {
 			)
 
 			const row = stmt.get(id) as
-				| { _id: number; __lazy_data: Uint8Array }
+				| {
+						_id: number
+						__lazy_data: Uint8Array
+						createdAt?: string
+						updatedAt?: string
+				  }
 				| undefined
 
 			if (!row) {
@@ -104,7 +99,9 @@ export class Repository<T extends EntityType> {
 				return {
 					...deserializedData,
 					_id: row._id,
-				} as T
+					createdAt: row?.createdAt,
+					updatedAt: row?.updatedAt,
+				} as Entity<T>
 			} catch (error) {
 				this.#logger?.(
 					`Failed to deserialize data for ID ${id}: ${error instanceof Error ? error.message : String(error)}`
@@ -157,6 +154,8 @@ export class Repository<T extends EntityType> {
 			const rows = stmt.all(...params) as Array<{
 				_id: number
 				__lazy_data: Uint8Array
+				createdAt?: string
+				updatedAt?: string
 			}>
 
 			// Deserialize each row
@@ -166,7 +165,9 @@ export class Repository<T extends EntityType> {
 					return {
 						...deserializedData,
 						_id: row._id,
-					} as T
+						createdAt: row?.createdAt,
+						updatedAt: row?.updatedAt,
+					} as Entity<T>
 				} catch (error) {
 					this.#logger?.(
 						`Failed to deserialize data: ${
