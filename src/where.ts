@@ -4,7 +4,12 @@
 
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
 import { toSqliteValue } from "./sql.js"
-import { LazyDbValue, NodeSqliteValue, type QueryKeys } from "./types.js"
+import {
+	type EntityType,
+	LazyDbValue,
+	NodeSqliteValue,
+	type QueryKeys,
+} from "./types.js"
 import {
 	type $,
 	array,
@@ -302,7 +307,7 @@ export const Where = union([WhereCondition, ComplexWhereCondition])
 export type Where<T> = WhereCondition<T> | ComplexWhereCondition<T>
 
 // And modify handleSingleCondition to use them both
-function handleSingleCondition<T>(
+function handleSingleCondition<T extends EntityType>(
 	where: WhereCondition<T>,
 	queryKeys?: QueryKeys<T>
 ): WhereClauseResult & { fields: string[] } {
@@ -377,7 +382,7 @@ function handleSingleCondition<T>(
 	}
 }
 
-function handleComplexCondition<T>(
+function handleComplexCondition<T extends EntityType>(
 	where: ComplexWhereCondition<T>,
 	queryKeys: QueryKeys<T>
 ): WhereClauseResult & { fields: string[] } {
@@ -431,7 +436,7 @@ function isWhereCondition<T>(where: Where<T>): where is WhereCondition<T> {
 	)
 }
 
-export function buildWhereClause<T>(
+export function buildWhereClause<T extends EntityType>(
 	where: Where<T>,
 	queryKeys?: QueryKeys<T>
 ): WhereClauseResult & { fields: string[] } {

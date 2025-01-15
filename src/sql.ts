@@ -4,6 +4,7 @@
 
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
 import {
+	type EntityType,
 	isQueryKeyDef,
 	validateQueryKeys,
 	type LazyDbColumnType,
@@ -13,7 +14,7 @@ import {
 } from "./types.js"
 import { isValidationErrors } from "./utils.js"
 
-export function buildCreateTableSQL<T>(
+export function buildCreateTableSQL<T extends EntityType>(
 	name: string,
 	queryKeys?: QueryKeys<T>
 ): string {
@@ -66,14 +67,17 @@ export function buildCreateTableSQL<T>(
 	return `CREATE TABLE IF NOT EXISTS ${name} (${columns.join(", ")})`
 }
 
-export const createIndexes = <T extends { [key: string]: unknown }>(
+export const createIndexes = <T extends EntityType>(
 	name: string,
 	queryKeys: QueryKeys<T>
 ) =>
 	Object.entries(queryKeys).map(([field, def]) => {
-		const indexName = `idx_${name}_${field}`
-		const indexType = def?.unique ? " UNIQUE" : ""
-		return `CREATE${indexType} INDEX IF NOT EXISTS ${indexName} ON ${name}(${field})`
+		if (isQueryKeyDef(def)) {
+			const indexName = `idx_${name}_${field}`
+			const indexType = def?.unique ? " UNIQUE" : ""
+			return `CREATE${indexType} INDEX IF NOT EXISTS ${indexName} ON ${name}(${field})`
+		}
+		return ""
 	})
 
 export function toSqliteValue(

@@ -2,12 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-import type {
-	DatabaseSync,
-	StatementSync,
-	SupportedValueType,
-} from "node:sqlite"
-import { RepositoryOptions } from "./types.js"
+import type { DatabaseSync, StatementSync } from "node:sqlite"
+import { type EntityType, RepositoryOptions } from "./types.js"
 
 import { isValidationErrors, validate } from "./utils.js"
 import {
@@ -18,13 +14,12 @@ import {
 
 import type stringifyLib from "fast-safe-stringify"
 import { createRequire } from "node:module"
-import { buildWhereClause } from "./where.js"
-import { type FindOptions, isGroupByArray } from "./find.js"
+import { buildFindQuery, type FindOptions } from "./find.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
 
-export class Repository<T extends { [key: string]: unknown }> {
+export class Repository<T extends EntityType> {
 	readonly #db: DatabaseSync
 	readonly #prepareStatement: (sql: string) => StatementSync
 	readonly #logger?: (msg: string) => void
@@ -135,46 +130,11 @@ export class Repository<T extends { [key: string]: unknown }> {
 		)
 
 		try {
-			// Start building the SQL query
-			let sql = `SELECT * FROM ${this.#name}`
-			const params: SupportedValueType[] = []
-
-			if (options.where) {
-				const whereClause = buildWhereClause(options.where)
-				sql += ` WHERE ${whereClause.sql}`
-				params.push(...whereClause.params)
-			}
-
-			// Add GROUP BY clause if provided
-			if (options.groupBy && isGroupByArray(options.groupBy)) {
-				sql += ` GROUP BY ${(options.groupBy as Array<T>).join(", ")}`
-			}
-
-			// Add ORDER BY clause if provided
-			if (options.orderBy) {
-				const orderClauses = Object.entries(options.orderBy).map(
-					([column, direction]) => `${column} ${direction}`
-				)
-				if (orderClauses.length > 0) {
-					sql += ` ORDER BY ${orderClauses.join(", ")}`
-				}
-			}
-
-			// Add LIMIT and OFFSET if provided
-			if (options.limit !== undefined) {
-				sql += " LIMIT ?"
-				params.push(options.limit)
-
-				if (options.offset !== undefined) {
-					sql += " OFFSET ?"
-					params.push(options.offset)
-				}
-			}
-
-			// Add DISTINCT if requested
-			if (options.distinct) {
-				sql = sql.replace("SELECT *", "SELECT DISTINCT *")
-			}
+			const { sql, params } = buildFindQuery(
+				this.#name,
+				options,
+				this.#queryKeys
+			)
 
 			this.#logger?.(
 				`Executing query: ${sql} with params: ${stringify(params)}`

@@ -19,6 +19,7 @@ import {
 	SerializerOptions as SerializerOptionsSchema,
 	type RepositoryOptions,
 	type QueryKeys,
+	type EntityType,
 } from "./types.js"
 import { Repository } from "./repository.new.js"
 import {
@@ -116,7 +117,7 @@ class LazyDb {
 		}
 	}
 
-	repository<T extends { [key: string]: unknown }>(
+	repository<T extends EntityType>(
 		name: string,
 		options?: RepositoryOptions<T>
 	): Repository<T> {
@@ -167,11 +168,14 @@ class LazyDb {
 		}
 	}
 
-	#buildCreateTableSQL<T>(name: string, queryKeys?: QueryKeys<T>): string {
+	#buildCreateTableSQL<T extends EntityType>(
+		name: string,
+		queryKeys?: QueryKeys<T>
+	): string {
 		return buildCreateTableSQL(name, queryKeys)
 	}
 
-	#createIndexes<T extends { [key: string]: unknown }>(
+	#createIndexes<T extends EntityType>(
 		name: string,
 		queryKeys: QueryKeys<T>
 	): void {

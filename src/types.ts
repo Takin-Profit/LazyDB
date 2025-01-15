@@ -37,6 +37,8 @@ const LazyDbColumnType = union([
 
 export type LazyDbColumnType = $<typeof LazyDbColumnType>
 
+export type EntityType = Record<string, unknown> | object
+
 // Map TypeScript types to valid SQLite column types
 type ValidColumnTypeMap<T> = T extends string
 	? "TEXT"
@@ -85,12 +87,12 @@ export const isQueryKeyDef = (data: unknown): data is QueryKeyDef<unknown> =>
 	Object.hasOwn(data, "type") &&
 	typeof (data as QueryKeyDef<unknown>).type === "string"
 
-export type QueryKeys<T> = {
+export type QueryKeys<T extends EntityType> = {
 	[K in keyof T]?: QueryKeyDef<T[K]>
 }
 export const validateQueryKeys = (data: unknown) => validate(QueryKeys, data)
 
-export type Entity<T> = {
+export type Entity<T extends EntityType> = {
 	_id?: number
 	createdAt?: string
 	updatedAt?: string
@@ -132,7 +134,7 @@ export const RepositoryOptions = object({
 	logger: optional(func([string()], unit())),
 })
 
-export type RepositoryOptions<T extends { [key: string]: unknown }> = Readonly<{
+export type RepositoryOptions<T extends EntityType> = Readonly<{
 	queryKeys?: QueryKeys<T>
 	prepareStatement: (sql: string) => StatementSync
 	timestamps?: boolean
