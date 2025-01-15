@@ -19,7 +19,6 @@ import {
 	partial,
 	record,
 	string,
-	tuple,
 	uint8Array,
 	union,
 	unit,
@@ -80,6 +79,12 @@ export const QueryKeys = object({
 	queryKeys: optional(record(string(), QueryKeyDef)),
 })
 
+export const isQueryKeyDef = (data: unknown): data is QueryKeyDef<unknown> =>
+	typeof data === "object" &&
+	data !== null &&
+	Object.hasOwn(data, "type") &&
+	typeof (data as QueryKeyDef<unknown>).type === "string"
+
 export type QueryKeys<T> = {
 	[K in keyof T]?: QueryKeyDef<T[K]>
 }
@@ -87,6 +92,8 @@ export const validateQueryKeys = (data: unknown) => validate(QueryKeys, data)
 
 export type Entity<T> = {
 	_id?: number
+	createdAt?: string
+	updatedAt?: string
 } & T
 
 export const SerializerOptions = union([
@@ -114,29 +121,10 @@ export const DatabaseOptions = object({
 
 export type DatabaseOptions = $<typeof DatabaseOptions>
 
-/**
- * QueryKeysList: A list of query keys with constraints.
- * - Accepts either a string key from T or a tuple of [key, QueryKeyDef].
- */
-/**
- * QueryKeysList: A list of query keys with constraints.
- * - Accepts either a plain string key from T or a tuple of [key, QueryKeyOptions].
- */
-type QueryKeysList<T> = (
-	| keyof T // Allow plain string keys
-	| {
-			[K in keyof T]: [K, QueryKeyOptions<T[K]>] // Tuple with constraints
-	  }[keyof T] // Distribute over keys
-)[]
-
-const QueryKeysList = array(
-	union([string(), tuple([string(), QueryKeyOptions])])
-)
-
 export const RepositoryOptions = object({
 	prepareStatement: func([string()], unknown()),
 	timestamps: optional(bool()),
-	queryKeys: optional(QueryKeysList),
+	queryKeys: optional(QueryKeys),
 	serializer: object({
 		encode: func([unknown()], uint8Array()),
 		decode: func([uint8Array()], unknown()),
@@ -144,25 +132,14 @@ export const RepositoryOptions = object({
 	logger: optional(func([string()], unit())),
 })
 
-type BaseRepositoryOptions = {
+export type RepositoryOptions<T extends { [key: string]: unknown }> = Readonly<{
+	queryKeys?: QueryKeys<T>
 	prepareStatement: (sql: string) => StatementSync
 	timestamps?: boolean
 	serializer: {
 		encode: (obj: unknown) => Uint8Array
 		decode: (buf: Uint8Array) => unknown
 	}
-	logger?: (msg: string) => void
-}
-
-export type RepositoryOptions<T extends { [key: string]: unknown }> = Readonly<
-	{
-		queryKeys?: QueryKeys<T>
-	} & BaseRepositoryOptions
->
-
-export type CreateRepositoryOptions<T> = Readonly<{
-	timestamps?: boolean
-	queryKeys?: QueryKeysList<T>
 	logger?: (msg: string) => void
 }>
 

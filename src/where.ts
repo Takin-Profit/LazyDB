@@ -3,11 +3,10 @@
 // license that can be found in the LICENSE file.
 
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
-import { LazyDbValue, NodeSqliteValue, type QueryKeyDef } from "./types.js"
+import { LazyDbValue, NodeSqliteValue, type QueryKeys } from "./types.js"
 import {
 	type $,
 	array,
-	inferColumnType,
 	isValidationErrors,
 	literal,
 	object,
@@ -305,11 +304,21 @@ export type Where<T> = WhereCondition<T> | ComplexWhereCondition<T>
 // And modify handleSingleCondition to use them both
 function handleSingleCondition<T>(
 	where: WhereCondition<T>,
-	queryKeys?: Partial<Record<keyof T, QueryKeyDef<T[keyof T]>>>
+	queryKeys?: QueryKeys<T>
 ): WhereClauseResult & { fields: string[] } {
 	const [field, operator, value] = where
-	const columnType =
-		queryKeys?.[field]?.type ?? inferColumnType<T[typeof field]>()
+
+	if (!queryKeys || !queryKeys[field]) {
+		throw new NodeSqliteError(
+			"ERR_SQLITE_WHERE",
+			SqlitePrimaryResultCode.SQLITE_MISUSE,
+			"Unknown field in where clause",
+			`Field "${String(field)}" is not defined in queryKeys`,
+			undefined
+		)
+	}
+
+	const columnType = queryKeys[field].type
 
 	if (operator === "IN" || operator === "NOT IN") {
 		if (!Array.isArray(value)) {
@@ -370,37 +379,44 @@ function handleSingleCondition<T>(
 
 function handleComplexCondition<T>(
 	where: ComplexWhereCondition<T>,
-	queryKeys?: Partial<Record<keyof T, QueryKeyDef<T[keyof T]>>>
+	queryKeys: QueryKeys<T>
 ): WhereClauseResult & { fields: string[] } {
 	const parts: string[] = []
+	const operators: LogicalOperator[] = []
 	const params: NodeSqliteValue[] = []
 	const fields: string[] = []
-	let currentOperator = "AND"
 
 	for (let i = 0; i < where.length; i++) {
 		const item = where[i]
 
 		if (i % 2 === 1) {
-			// Odd indices should be operators
-			currentOperator = item as LogicalOperator
+			// Odd indices are operators, store them in sequence
+			operators.push(item as LogicalOperator)
 			continue
 		}
 
-		// Even indices should be conditions
+		// Even indices are conditions
 		const condition = item as Where<T>
 		const {
 			sql,
 			params: conditionParams,
 			fields: conditionFields,
-		} = buildWhereClause(condition, queryKeys) // Recursive call
+		} = buildWhereClause(condition, queryKeys)
 		parts.push(sql)
 		params.push(...conditionParams)
 		fields.push(...conditionFields)
 	}
 
+	// Combine parts with their respective operators
+	const combinedSql = parts.reduce((acc, part, idx) => {
+		if (idx === 0) {
+			return part
+		}
+		return `${acc} ${operators[idx - 1]} ${part}`
+	}, "")
+
 	return {
-		sql:
-			parts.length > 1 ? `(${parts.join(` ${currentOperator} `)})` : parts[0],
+		sql: parts.length > 1 ? `(${combinedSql})` : parts[0],
 		params,
 		fields,
 	}
@@ -417,9 +433,18 @@ function isWhereCondition<T>(where: Where<T>): where is WhereCondition<T> {
 
 export function buildWhereClause<T>(
 	where: Where<T>,
-	queryKeys?: Partial<Record<keyof T, QueryKeyDef<T[keyof T]>>>
+	queryKeys?: QueryKeys<T>
 ): WhereClauseResult & { fields: string[] } {
-	// Validate the where condition first
+	// If no queryKeys, return empty result since there are no queryable fields
+	if (!queryKeys) {
+		return {
+			sql: "",
+			params: [],
+			fields: [],
+		}
+	}
+
+	// Rest of validation and processing
 	const validationResult = validate(Where, where)
 	if (isValidationErrors(validationResult)) {
 		throw new NodeSqliteError(
@@ -431,9 +456,8 @@ export function buildWhereClause<T>(
 		)
 	}
 
-	// Use the type guard to determine the type of condition
 	if (isWhereCondition(where)) {
 		return handleSingleCondition(where, queryKeys)
 	}
-	return handleComplexCondition(where as ComplexWhereCondition<T>, queryKeys)
+	return handleComplexCondition(where, queryKeys)
 }

@@ -14,14 +14,13 @@ import {
 import { validate, isValidationErrors } from "./utils.js"
 import {
 	type SerializerOptions,
-	type Entity,
 	type DatabaseOptions,
 	DatabaseOptions as DatabaseOptionsSchema,
 	SerializerOptions as SerializerOptionsSchema,
 	type RepositoryOptions,
-	type QueryKeyDef,
 	validateQueryKeys,
-	CreateRepositoryOptions,
+	type QueryKeys,
+	isQueryKeyDef,
 } from "./types.js"
 import { Repository } from "./repository.new.js"
 import {
@@ -120,8 +119,8 @@ class LazyDb {
 
 	repository<T extends { [key: string]: unknown }>(
 		name: string,
-		options?: CreateRepositoryOptions<T>
-	): Repository<Entity<T>> {
+		options?: RepositoryOptions<T>
+	): Repository<T> {
 		this.#logger?.(`Creating repository: ${name}`)
 
 		// Validate repository name
@@ -136,10 +135,7 @@ class LazyDb {
 		}
 
 		// Build CREATE TABLE statement
-		const createTableSQL = this.#buildCreateTableSQL(
-			name,
-			options?.queryKeys as Record<string, QueryKeyDef>
-		)
+		const createTableSQL = this.#buildCreateTableSQL(name, options?.queryKeys)
 
 		try {
 			// Create table if not exists
@@ -147,10 +143,7 @@ class LazyDb {
 
 			// Create indexes for queryable columns
 			if (options?.queryKeys) {
-				this.#createIndexes(
-					name,
-					options.queryKeys as Record<string, QueryKeyDef>
-				)
+				this.#createIndexes(name, options.queryKeys)
 			}
 
 			// Return new Repository instance
@@ -175,10 +168,7 @@ class LazyDb {
 		}
 	}
 
-	#buildCreateTableSQL(
-		name: string,
-		queryKeys?: Record<string, QueryKeyDef>
-	): string {
+	#buildCreateTableSQL<T>(name: string, queryKeys?: QueryKeys<T>): string {
 		// biome-ignore lint/style/noUnusedTemplateLiteral: <explanation>
 		const columns = [`_id INTEGER PRIMARY KEY AUTOINCREMENT`]
 
@@ -199,25 +189,28 @@ class LazyDb {
 			for (const [field, def] of Object.entries(queryKeys)) {
 				const constraints: string[] = []
 
-				if (!def.nullable) {
-					constraints.push("NOT NULL")
-				}
-				if (def.default !== undefined) {
-					constraints.push(
-						`DEFAULT ${
-							typeof def.default === "string" ? `'${def.default}'` : def.default
-						}`
+				if (isQueryKeyDef(def)) {
+					if (!def.nullable) {
+						constraints.push("NOT NULL")
+					}
+					if (def.default !== undefined) {
+						constraints.push(
+							`DEFAULT ${
+								typeof def.default === "string"
+									? `'${def.default}'`
+									: def.default
+							}`
+						)
+					}
+
+					// If index.unique is true, add UNIQUE constraint
+					if (def.unique) {
+						constraints.push("UNIQUE")
+					}
+					columns.push(
+						`${field} ${def.type}${constraints.length ? ` ${constraints.join(" ")}` : ""}`
 					)
 				}
-
-				// If index.unique is true, add UNIQUE constraint
-				if (typeof def.index === "object" && def.index.unique) {
-					constraints.push("UNIQUE")
-				}
-
-				columns.push(
-					`${field} ${def.type}${constraints.length ? ` ${constraints.join(" ")}` : ""}`
-				)
 			}
 		}
 
@@ -227,15 +220,13 @@ class LazyDb {
 		return `CREATE TABLE IF NOT EXISTS ${name} (${columns.join(", ")})`
 	}
 
-	#createIndexes(name: string, queryKeys: Record<string, QueryKeyDef>): void {
+	#createIndexes<T extends { [key: string]: unknown }>(
+		name: string,
+		queryKeys: QueryKeys<T>
+	): void {
 		for (const [field, def] of Object.entries(queryKeys)) {
-			if (!def.index) {
-				continue
-			}
-
 			const indexName = `idx_${name}_${field}`
-			const indexType =
-				typeof def.index === "object" && def.index.unique ? "UNIQUE" : ""
+			const indexType = def?.unique ? "UNIQUE" : ""
 			const sql = `CREATE ${indexType} INDEX IF NOT EXISTS ${indexName} ON ${name}(${field})`
 
 			try {

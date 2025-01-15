@@ -149,78 +149,51 @@ export const buffer = () =>
 
 export type $<T extends TSchema> = Static<T>
 
-// First, define valid types for each column type
-type ColumnTypeMap = {
-	TEXT: string
-	INTEGER: number | bigint
-	REAL: number
-	BOOLEAN: boolean
-}
-
 export function toSqliteValue(
 	value: LazyDbValue,
 	columnType: LazyDbColumnType
 ): NodeSqliteValue {
-	// Will only return string | number | bigint | null
 	switch (columnType) {
-		case "TEXT":
-			return typeof value === "string" ? value : String(value)
+		case "TEXT": {
+			if (typeof value !== "string") {
+				throw new TypeError(`Invalid value for TEXT: ${value}`)
+			}
+			return value
+		}
 
 		case "INTEGER": {
-			if (typeof value === "number" || typeof value === "bigint") {
+			if (typeof value === "number") {
+				if (!Number.isInteger(value)) {
+					throw new TypeError(
+						`Invalid value for INTEGER: ${value} (must be an integer)`
+					)
+				}
+				return value
+			}
+			if (typeof value === "bigint") {
 				return value
 			}
 			if (typeof value === "boolean") {
 				return value ? 1 : 0
-			}
-			if (typeof value === "string") {
-				const num = Number.parseInt(value, 10)
-				if (!Number.isNaN(num)) {
-					return num
-				}
 			}
 			throw new TypeError(`Invalid value for INTEGER: ${value}`)
 		}
 
 		case "REAL": {
-			if (typeof value === "number") {
-				return value
+			if (typeof value !== "number") {
+				throw new TypeError(`Invalid value for REAL: ${value}`)
 			}
-			if (typeof value === "string") {
-				const num = Number.parseFloat(value)
-				if (!Number.isNaN(num)) {
-					return num
-				}
-			}
-			throw new TypeError(`Invalid value for REAL: ${value}`)
+			return value
 		}
 
 		case "BOOLEAN": {
-			// Always convert boolean values to 1 or 0
-			if (typeof value === "boolean") {
-				return value ? 1 : 0
+			if (typeof value !== "boolean") {
+				throw new TypeError(`Invalid value for BOOLEAN: ${value}`)
 			}
-			if (typeof value === "number") {
-				return value === 0 ? 0 : 1
-			}
-			if (typeof value === "string") {
-				const lowerValue = value.toLowerCase()
-				return lowerValue === "true" || lowerValue === "1" ? 1 : 0
-			}
-			throw new TypeError(`Invalid value for BOOLEAN: ${value}`)
+			return value ? 1 : 0
 		}
 
 		default:
 			throw new TypeError(`Unsupported SQLite column type: ${columnType}`)
 	}
-}
-
-// First, let's define the type inference function
-export function inferColumnType<T>(): LazyDbColumnType {
-	// sourcery skip: use-braces
-	if ((typeof undefined as T) === "string") return "TEXT"
-	if ((typeof undefined as T) === "number") return "INTEGER"
-	if ((typeof undefined as T) === "boolean") return "BOOLEAN"
-	if ((typeof undefined as T) === "bigint") return "INTEGER"
-	return "TEXT" // Default fallback
 }

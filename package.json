@@ -37,6 +37,7 @@
     "@biomejs/biome": "^1.9.4",
     "@types/msgpack-lite": "^0.1.11",
     "@types/node": "^22.9.0",
+    "fast-check": "^3.23.2",
     "npm-run-all2": "^7.0.1",
     "pkgroll": "^1.0.0",
     "rimraf": "^5.0.10",
