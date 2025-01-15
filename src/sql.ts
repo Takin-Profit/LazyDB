@@ -146,7 +146,7 @@ export function toSqliteValue(
  * @param timestamps - Whether timestamps (createdAt, updatedAt) are enabled.
  * @returns The RETURNING clause as a string.
  */
-function buildReturningClause(timestamps: boolean): string {
+export function buildReturningClause(timestamps: boolean): string {
 	const fields = ["_id", "__lazy_data"]
 	if (timestamps) {
 		fields.push("createdAt", "updatedAt")

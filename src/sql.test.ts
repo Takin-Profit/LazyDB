@@ -6,13 +6,12 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-import test, { describe, it } from "node:test"
+import test from "node:test"
 import assert from "node:assert"
 import fc from "fast-check"
 import type { LazyDbColumnType, QueryKeys } from "./types.js"
 import {
 	buildCreateTableSQL,
-	buildInsertManyQuery,
 	buildInsertQuery,
 	createIndexes,
 	toSqliteValue,

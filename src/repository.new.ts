@@ -16,6 +16,7 @@ import type stringifyLib from "fast-safe-stringify"
 import { createRequire } from "node:module"
 import { buildFindQuery, type FindOptions } from "./find.js"
 import { buildInsertManyQuery, buildInsertQuery } from "./sql.js"
+import { buildUpdateQuery } from "./update.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -365,6 +366,113 @@ export class Repository<T extends EntityType> {
 				SqlitePrimaryResultCode.SQLITE_ERROR,
 				"batch insert operation failed",
 				"Unexpected error during batch insert operation",
+				error instanceof Error ? error : undefined
+			)
+		}
+	}
+
+	/**
+	 * Updates entities that match the where clause with the provided partial entity data.
+	 * Returns the first updated entity or null if no entities were updated.
+	 *
+	 * @param options Object containing where clause
+	 * @param entity Partial entity containing fields to update
+	 * @returns Updated entity or null if no entities were updated
+	 * @throws {NodeSqliteError} If the update fails
+	 */
+	update(
+		options: Pick<FindOptions<T>, "where">,
+		entity: Partial<T>
+	): Entity<T> | null {
+		try {
+			this.#logger?.(
+				`Updating entities in ${this.#name} with options: ${JSON.stringify(options)}`
+			)
+
+			// Start a transaction
+			this.#db.exec("BEGIN TRANSACTION")
+
+			try {
+				// Build the update query
+				const { sql, params } = buildUpdateQuery(
+					this.#name,
+					entity,
+					options,
+					this.#queryKeys,
+					this.#timestamps
+				)
+
+				// Prepare statement
+				const stmt = this.#prepareStatement(sql)
+
+				// Create serialized data for the update
+				const serializedData = this.#serializer.encode(entity)
+
+				// Execute the update with params and serialized data
+				const result = stmt.get(...params, serializedData) as
+					| {
+							_id: number
+							__lazy_data: Uint8Array
+							createdAt?: string
+							updatedAt?: string
+					  }
+					| undefined
+
+				// Commit transaction
+				this.#db.exec("COMMIT")
+
+				// If no rows were updated, return null
+				if (!result) {
+					this.#logger?.("No entities matched update criteria")
+					return null
+				}
+
+				// Deserialize and return the updated entity
+				try {
+					const deserializedData = this.#serializer.decode(
+						result.__lazy_data
+					) as T
+					return {
+						...deserializedData,
+						_id: result._id,
+						createdAt: result?.createdAt,
+						updatedAt: result?.updatedAt,
+					} as Entity<T>
+				} catch (error) {
+					this.#logger?.(
+						`Failed to deserialize updated data: ${error instanceof Error ? error.message : String(error)}`
+					)
+					throw new NodeSqliteError(
+						"ERR_SQLITE_DESERIALIZE",
+						SqlitePrimaryResultCode.SQLITE_MISMATCH,
+						"deserialization failed",
+						"Failed to deserialize updated entity data",
+						error instanceof Error ? error : undefined
+					)
+				}
+			} catch (error) {
+				// Rollback on any error
+				this.#logger?.("Rolling back transaction due to error")
+				this.#db.exec("ROLLBACK")
+				throw error
+			}
+		} catch (error) {
+			// Handle SQLite-specific errors
+			if (isNodeSqliteError(error)) {
+				throw error
+			}
+
+			// Handle unexpected errors
+			this.#logger?.(
+				`Unexpected error during update: ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			)
+			throw new NodeSqliteError(
+				"ERR_SQLITE_UPDATE",
+				SqlitePrimaryResultCode.SQLITE_ERROR,
+				"update operation failed",
+				"Unexpected error during update operation",
 				error instanceof Error ? error : undefined
 			)
 		}
