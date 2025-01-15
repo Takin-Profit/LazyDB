@@ -214,18 +214,37 @@ export class Repository<T extends EntityType> {
 			this.#logger?.(`Inserting entity into ${this.#name}`)
 
 			const serializedData = this.#serializer.encode(entity)
+
+			// Build the insert query with query keys and timestamp handling
 			const { sql, values } = buildInsertQuery(
 				this.#name,
 				entity,
-				this.#queryKeys
+				this.#queryKeys,
+				this.#timestamps
 			)
-			const stmt = this.#prepareStatement(sql)
-			const result = stmt.run(...values, serializedData)
 
-			// Return the inserted entity with its new ID
+			this.#logger?.(`Executing query: ${sql} with values: ${values}`)
+
+			// Prepare and execute the statement
+			const stmt = this.#prepareStatement(sql)
+
+			// Run the statement and capture the returning values
+			const result = stmt.get(...values, serializedData) as {
+				_id: number
+				__lazy_data: Uint8Array
+				createdAt?: string
+				updatedAt?: string
+			}
+
+			// Deserialize the __lazy_data blob
+			const deserializedData = this.#serializer.decode(result.__lazy_data) as T
+
+			// Return the complete entity with _id and timestamps
 			return {
-				...entity,
-				_id: Number(result.lastInsertRowid),
+				...deserializedData,
+				_id: result._id,
+				createdAt: result?.createdAt,
+				updatedAt: result?.updatedAt,
 			} as Entity<T>
 		} catch (error) {
 			// Handle SQLite-specific errors
@@ -235,7 +254,9 @@ export class Repository<T extends EntityType> {
 
 			// Handle unexpected errors
 			this.#logger?.(
-				`Unexpected error during insert operation: ${error instanceof Error ? error.message : String(error)}`
+				`Unexpected error during insert operation: ${
+					error instanceof Error ? error.message : String(error)
+				}`
 			)
 			throw new NodeSqliteError(
 				"ERR_SQLITE_INSERT",

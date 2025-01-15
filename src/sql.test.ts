@@ -468,6 +468,24 @@ test("buildCreateTableSQL validations", async (t) => {
 		assert.ok(statements[1].includes("field2"))
 		assert.ok(!statements[1].includes("UNIQUE"))
 	})
+
+	await t.test(
+		"buildCreateTableSQL includes timestamp columns when enabled",
+		() => {
+			const sql = buildCreateTableSQL("test_table", undefined, true)
+			assert(sql.includes("createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"))
+			assert(sql.includes("updatedAt TEXT"))
+		}
+	)
+
+	await t.test(
+		"buildCreateTableSQL excludes timestamp columns when disabled",
+		() => {
+			const sql = buildCreateTableSQL("test_table", undefined, false)
+			assert(!sql.includes("createdAt"))
+			assert(!sql.includes("updatedAt"))
+		}
+	)
 })
 
 test("buildInsertQuery", async (t) => {
@@ -477,7 +495,10 @@ test("buildInsertQuery", async (t) => {
 		const entity = { name: "test" }
 		const result = buildInsertQuery(tableName, entity)
 
-		assert.equal(result.sql, "INSERT INTO test_table (__lazy_data) VALUES (?)")
+		assert.equal(
+			result.sql,
+			"INSERT INTO test_table (__lazy_data) VALUES (?) RETURNING _id, __lazy_data"
+		)
 		assert.equal(result.values.length, 0)
 	})
 
@@ -504,7 +525,7 @@ test("buildInsertQuery", async (t) => {
 
 		assert.equal(
 			result.sql,
-			"INSERT INTO test_table (name, age, active, __lazy_data) VALUES (?, ?, ?, ?)"
+			"INSERT INTO test_table (name, age, active, __lazy_data) VALUES (?, ?, ?, ?) RETURNING _id, __lazy_data"
 		)
 		assert.equal(result.values.length, 3)
 		assert.equal(result.values[0], "John")
@@ -532,7 +553,7 @@ test("buildInsertQuery", async (t) => {
 
 		assert.equal(
 			result.sql,
-			"INSERT INTO test_table (name, __lazy_data) VALUES (?, ?)"
+			"INSERT INTO test_table (name, __lazy_data) VALUES (?, ?) RETURNING _id, __lazy_data"
 		)
 		assert.equal(result.values.length, 1)
 		assert.equal(result.values[0], "John")
@@ -558,7 +579,7 @@ test("buildInsertQuery", async (t) => {
 
 		assert.equal(
 			result.sql,
-			"INSERT INTO test_table (name, age, __lazy_data) VALUES (?, ?, ?)"
+			"INSERT INTO test_table (name, age, __lazy_data) VALUES (?, ?, ?) RETURNING _id, __lazy_data"
 		)
 		assert.equal(result.values.length, 2)
 		assert.equal(result.values[0], null)
@@ -584,7 +605,7 @@ test("buildInsertQuery", async (t) => {
 
 		assert.equal(
 			result.sql,
-			"INSERT INTO test_table (name, __lazy_data) VALUES (?, ?)"
+			"INSERT INTO test_table (name, __lazy_data) VALUES (?, ?) RETURNING _id, __lazy_data"
 		)
 		assert.equal(result.values.length, 1)
 		assert.equal(result.values[0], "John")

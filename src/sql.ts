@@ -141,6 +141,19 @@ export function toSqliteValue(
 	}
 }
 
+/**
+ * Builds the RETURNING clause for SQL queries.
+ * @param timestamps - Whether timestamps (createdAt, updatedAt) are enabled.
+ * @returns The RETURNING clause as a string.
+ */
+function buildReturningClause(timestamps: boolean): string {
+	const fields = ["_id", "__lazy_data"]
+	if (timestamps) {
+		fields.push("createdAt", "updatedAt")
+	}
+	return `RETURNING ${fields.join(", ")}`
+}
+
 interface InsertQueryResult {
 	sql: string
 	values: SupportedValueType[]
@@ -149,15 +162,20 @@ interface InsertQueryResult {
 export function buildInsertQuery<T extends Record<string, unknown> | object>(
 	tableName: string,
 	entity: Omit<T, "_id" | "createdAt" | "updatedAt">,
-	queryKeys?: QueryKeys<T>
+	queryKeys?: QueryKeys<T>,
+	timestamps = false
 ): InsertQueryResult {
 	const columns: string[] = []
 	const values: SupportedValueType[] = []
 	const placeholders: string[] = []
 
+	const ignorableFields = ["_id", "createdAt", "updatedAt"]
 	// Add queryable fields if they exist
 	if (queryKeys) {
 		for (const [field, def] of Object.entries(queryKeys)) {
+			if (ignorableFields.includes(field)) {
+				continue
+			}
 			const value =
 				entity[field as keyof Omit<T, "_id" | "createdAt" | "updatedAt">]
 			if (field in entity && isQueryKeyDef(def) && value !== undefined) {
@@ -172,8 +190,9 @@ export function buildInsertQuery<T extends Record<string, unknown> | object>(
 	columns.push("__lazy_data")
 	placeholders.push("?")
 
-	// Build INSERT query
-	const sql = `INSERT INTO ${tableName} (${columns.join(", ")}) VALUES (${placeholders.join(", ")})`
+	const sql = `INSERT INTO ${tableName} (${columns.join(
+		", "
+	)}) VALUES (${placeholders.join(", ")}) ${buildReturningClause(timestamps)}`
 
 	return { sql, values }
 }
