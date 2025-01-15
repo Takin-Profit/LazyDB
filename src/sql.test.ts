@@ -6,12 +6,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-import test from "node:test"
+import test, { describe, it } from "node:test"
 import assert from "node:assert"
 import fc from "fast-check"
 import type { LazyDbColumnType, QueryKeys } from "./types.js"
 import {
 	buildCreateTableSQL,
+	buildInsertManyQuery,
 	buildInsertQuery,
 	createIndexes,
 	toSqliteValue,
@@ -388,7 +389,6 @@ test("createIndexes", async (t) => {
 			queryKeys as QueryKeys<any>
 		)
 
-		console.log(`actual statements: ${statements}`)
 		assert.strictEqual(statements.length, 2)
 		assert.ok(
 			statements[0].includes("CREATE INDEX IF NOT EXISTS idx_test_table_field1")

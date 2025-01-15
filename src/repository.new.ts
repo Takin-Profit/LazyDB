@@ -15,7 +15,7 @@ import {
 import type stringifyLib from "fast-safe-stringify"
 import { createRequire } from "node:module"
 import { buildFindQuery, type FindOptions } from "./find.js"
-import { buildInsertQuery } from "./sql.js"
+import { buildInsertManyQuery, buildInsertQuery } from "./sql.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -264,6 +264,107 @@ export class Repository<T extends EntityType> {
 				SqlitePrimaryResultCode.SQLITE_ERROR,
 				"insert operation failed",
 				"Unexpected error during insert operation",
+				error instanceof Error ? error : undefined
+			)
+		}
+	}
+
+	/**
+	 * Inserts multiple entities in a single transaction.
+	 *
+	 * @param entities An array of entities to insert
+	 * @returns An array of inserted entities with their IDs and timestamps
+	 * @throws {NodeSqliteError} If the insertion fails
+	 */
+	insertMany(entities: T[]): Entity<T>[] {
+		if (!entities.length) {
+			return []
+		}
+
+		this.#logger?.(`Inserting ${entities.length} entities into ${this.#name}`)
+
+		try {
+			// Start a transaction
+			this.#db.exec("BEGIN TRANSACTION")
+
+			try {
+				// Build the insert query using the new helper function
+				const { sql, values } = buildInsertManyQuery(
+					this.#name,
+					entities,
+					this.#queryKeys,
+					this.#timestamps
+				)
+
+				// Prepare the statement once for reuse
+				const stmt = this.#prepareStatement(sql)
+
+				// Process each entity
+				const results: Entity<T>[] = []
+
+				for (let i = 0; i < entities.length; i++) {
+					try {
+						// Serialize the entity data
+						const serializedData = this.#serializer.encode(entities[i])
+
+						// Get the values for this entity and add the serialized data
+						const entityValues = [...values[i]]
+						entityValues[entityValues.length - 1] = serializedData
+
+						// Execute the statement and get the result
+						const result = stmt.get(...entityValues) as {
+							_id: number
+							__lazy_data: Uint8Array
+							createdAt?: string
+							updatedAt?: string
+						}
+
+						// Deserialize and add to results
+						const deserializedData = this.#serializer.decode(
+							result.__lazy_data
+						) as T
+						results.push({
+							...deserializedData,
+							_id: result._id,
+							createdAt: result?.createdAt,
+							updatedAt: result?.updatedAt,
+						} as Entity<T>)
+					} catch (error) {
+						this.#logger?.(
+							`Failed to process entity at index ${i}: ${error instanceof Error ? error.message : String(error)}`
+						)
+						throw error
+					}
+				}
+
+				// Commit the transaction
+				this.#db.exec("COMMIT")
+				this.#logger?.(`Successfully inserted ${results.length} entities`)
+
+				return results
+			} catch (error) {
+				// Rollback on any error
+				this.#logger?.("Rolling back transaction due to error")
+				this.#db.exec("ROLLBACK")
+				throw error
+			}
+		} catch (error) {
+			// Handle SQLite-specific errors
+			if (isNodeSqliteError(error)) {
+				throw error
+			}
+
+			// Handle unexpected errors
+			this.#logger?.(
+				`Unexpected error during batch insert: ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			)
+			throw new NodeSqliteError(
+				"ERR_SQLITE_INSERT_MANY",
+				SqlitePrimaryResultCode.SQLITE_ERROR,
+				"batch insert operation failed",
+				"Unexpected error during batch insert operation",
 				error instanceof Error ? error : undefined
 			)
 		}

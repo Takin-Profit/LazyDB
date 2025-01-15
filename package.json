@@ -18,10 +18,8 @@
   },
   "scripts": {
     "build": "pkgroll --tsconfig tsconfig.build.json",
-    "test:all": "tsx --test src/**/*.test.ts",
     "try": "tsx ./try.mts",
-    "test": "npm-run-all2 clean test:all",
-    "clean": "pnpm rimraf dist coverage advanced-test-db/*.mdb test-db/*.mdb",
+    "test": "tsx --test src/**/*.test.ts",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [

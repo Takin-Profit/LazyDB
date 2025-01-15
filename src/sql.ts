@@ -196,3 +196,83 @@ export function buildInsertQuery<T extends Record<string, unknown> | object>(
 
 	return { sql, values }
 }
+
+interface InsertManyQueryResult {
+	sql: string
+	values: SupportedValueType[][]
+}
+
+/**
+ * Builds an SQL query for inserting multiple entities.
+ *
+ * @param tableName The name of the table to insert into
+ * @param entities Array of entities to insert
+ * @param queryKeys Optional query keys configuration
+ * @param timestamps Whether to include timestamp fields
+ * @returns Object containing the SQL query and array of value arrays
+ */
+export function buildInsertManyQuery<
+	T extends Record<string, unknown> | object,
+>(
+	tableName: string,
+	entities: Omit<T, "_id" | "createdAt" | "updatedAt">[],
+	queryKeys?: QueryKeys<T>,
+	timestamps = false
+): InsertManyQueryResult {
+	if (!entities.length) {
+		return { sql: "", values: [] }
+	}
+
+	const columns: string[] = []
+	const values: SupportedValueType[][] = []
+	const placeholders: string[] = []
+	const ignorableFields = ["_id", "createdAt", "updatedAt"]
+
+	// Build column list from first entity and query keys
+	if (queryKeys) {
+		for (const [field, def] of Object.entries(queryKeys)) {
+			if (ignorableFields.includes(field)) {
+				continue
+			}
+
+			if (isQueryKeyDef(def)) {
+				columns.push(field)
+				placeholders.push("?")
+			}
+		}
+	}
+
+	// Add the serialized data placeholder
+	columns.push("__lazy_data")
+	placeholders.push("?")
+
+	// Build the base SQL query
+	const sql = `INSERT INTO ${tableName} (${columns.join(", ")})
+                 VALUES (${placeholders.join(", ")})
+                 ${buildReturningClause(timestamps)}`
+
+	// Build values array for each entity
+	for (const entity of entities) {
+		const entityValues: SupportedValueType[] = []
+
+		if (queryKeys) {
+			for (const [field, def] of Object.entries(queryKeys)) {
+				if (ignorableFields.includes(field)) {
+					continue
+				}
+
+				const value =
+					entity[field as keyof Omit<T, "_id" | "createdAt" | "updatedAt">]
+				if (field in entity && isQueryKeyDef(def) && value !== undefined) {
+					entityValues.push(toSqliteValue(value as LazyDbValue, def.type))
+				}
+			}
+		}
+
+		// Add placeholder for __lazy_data (will be filled in during execution)
+		entityValues.push(new Uint8Array())
+		values.push(entityValues)
+	}
+
+	return { sql, values }
+}
