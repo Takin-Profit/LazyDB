@@ -21,6 +21,7 @@ import {
 	type RepositoryOptions,
 	type QueryKeyDef,
 	validateQueryKeys,
+	CreateRepositoryOptions,
 } from "./types.js"
 import { Repository } from "./repository.new.js"
 import {
@@ -119,7 +120,7 @@ class LazyDb {
 
 	repository<T extends { [key: string]: unknown }>(
 		name: string,
-		options?: RepositoryOptions<T>
+		options?: CreateRepositoryOptions<T>
 	): Repository<Entity<T>> {
 		this.#logger?.(`Creating repository: ${name}`)
 

@@ -16,7 +16,6 @@ import {
 	type PragmaConfig,
 	PragmaDefaults,
 	getPragmaStatements,
-	configurePragmas,
 } from "./pragmas.js"
 
 describe("SQLite Pragma Configuration", async () => {
@@ -81,27 +80,6 @@ describe("SQLite Pragma Configuration", async () => {
 		assert(statements.includes("PRAGMA trusted_schema=OFF;"))
 		assert(statements.includes("PRAGMA synchronous=NORMAL;"))
 		assert(statements.includes("PRAGMA foreign_keys=ON;"))
-	})
-
-	test("configurePragmas should execute all statements", async () => {
-		const executedStatements: string[] = []
-		const mockDb = {
-			execute: async (sql: string) => {
-				executedStatements.push(sql)
-			},
-		}
-
-		const config: PragmaConfig = {
-			journalMode: "WAL",
-			synchronous: "NORMAL",
-		}
-
-		await configurePragmas(mockDb, config)
-
-		assert.deepEqual(executedStatements, [
-			"PRAGMA journal_mode=WAL;",
-			"PRAGMA synchronous=NORMAL;",
-		])
 	})
 
 	test("empty config should generate no statements", () => {

@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 import type { StatementSync } from "node:sqlite"
-import { type $, bool, num, object, optional } from "./utils.js"
+import { type $, num, object, optional } from "./utils.js"
 
 interface CacheItem<V> {
 	value: V

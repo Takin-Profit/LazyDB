@@ -7,6 +7,7 @@ import { LazyDbValue, NodeSqliteValue, type QueryKeyDef } from "./types.js"
 import {
 	type $,
 	array,
+	inferColumnType,
 	isValidationErrors,
 	literal,
 	object,
@@ -301,15 +302,14 @@ export const Where = union([WhereCondition, ComplexWhereCondition])
  */
 export type Where<T> = WhereCondition<T> | ComplexWhereCondition<T>
 
+// And modify handleSingleCondition to use them both
 function handleSingleCondition<T>(
 	where: WhereCondition<T>,
-	queryKeys?: Record<string, QueryKeyDef>
+	queryKeys?: Partial<Record<keyof T, QueryKeyDef<T[keyof T]>>>
 ): WhereClauseResult & { fields: string[] } {
 	const [field, operator, value] = where
 	const columnType =
-		typeof field === "string" && queryKeys?.[field]?.type
-			? queryKeys[field].type
-			: "TEXT" // Default to TEXT if no type is found
+		queryKeys?.[field]?.type ?? inferColumnType<T[typeof field]>()
 
 	if (operator === "IN" || operator === "NOT IN") {
 		if (!Array.isArray(value)) {
@@ -318,6 +318,16 @@ function handleSingleCondition<T>(
 				SqlitePrimaryResultCode.SQLITE_MISUSE,
 				"Invalid IN/NOT IN value",
 				`Operator ${operator} requires an array value`,
+				undefined
+			)
+		}
+
+		if (value.length === 0) {
+			throw new NodeSqliteError(
+				"ERR_SQLITE_WHERE",
+				SqlitePrimaryResultCode.SQLITE_MISUSE,
+				"Invalid IN/NOT IN value",
+				"Empty arrays are not allowed in IN/NOT IN clauses",
 				undefined
 			)
 		}
@@ -360,7 +370,7 @@ function handleSingleCondition<T>(
 
 function handleComplexCondition<T>(
 	where: ComplexWhereCondition<T>,
-	queryKeys?: Record<string, QueryKeyDef>
+	queryKeys?: Partial<Record<keyof T, QueryKeyDef<T[keyof T]>>>
 ): WhereClauseResult & { fields: string[] } {
 	const parts: string[] = []
 	const params: NodeSqliteValue[] = []
@@ -407,7 +417,7 @@ function isWhereCondition<T>(where: Where<T>): where is WhereCondition<T> {
 
 export function buildWhereClause<T>(
 	where: Where<T>,
-	queryKeys?: Record<string, QueryKeyDef>
+	queryKeys?: Partial<Record<keyof T, QueryKeyDef<T[keyof T]>>>
 ): WhereClauseResult & { fields: string[] } {
 	// Validate the where condition first
 	const validationResult = validate(Where, where)
