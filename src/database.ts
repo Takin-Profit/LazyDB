@@ -33,6 +33,117 @@ const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
 
+type RepositoryFactory<T extends EntityType> = {
+	create<K extends QueryKeys<T>>(
+		options?: Omit<RepositoryOptions<T, K>, "serializer">
+	): Repository<T, K>
+}
+
+type CreateFactoryProps = {
+	db: DatabaseSync
+	logger?: (message: string) => void
+	name: string
+	prepareStatement: (sql: string) => StatementSync
+	serializer: {
+		encode: (obj: unknown) => Uint8Array
+		decode: (buf: Uint8Array) => unknown
+	}
+	timestampEnabled?: boolean
+}
+
+function _createIndexes<T extends EntityType>(
+	name: string,
+	db: DatabaseSync,
+	queryKeys: QueryKeys<T>,
+	logger?: (message: string) => void
+): void {
+	const statements = createIndexes(name, queryKeys)
+	for (const sql of statements) {
+		try {
+			db.exec(sql)
+		} catch (error) {
+			logger?.(
+				`Failed to create index: ${error instanceof Error ? error.message : String(error)}`
+			)
+			throw error instanceof NodeSqliteError
+				? error
+				: NodeSqliteError.fromNodeSqlite(
+						error instanceof Error ? error : new Error(String(error))
+					)
+		}
+	}
+}
+
+const createRepositoryFactory = <T extends EntityType>(
+	props: CreateFactoryProps
+): RepositoryFactory<T> => ({
+	create<K extends QueryKeys<T>>(
+		options?: Omit<RepositoryOptions<T, K>, "serializer">
+	) {
+		props.logger?.(`Creating repository: ${props.name}`)
+
+		const result = validate(RepositoryOptions, options)
+
+		if (isValidationErrors(result)) {
+			throw new NodeSqliteError(
+				"ERR_SQLITE_REPOSITORY",
+				SqlitePrimaryResultCode.SQLITE_MISUSE,
+				"Invalid repository options",
+				`Repository options validation failed: ${result.map((e) => e.message).join(", ")}`,
+				undefined
+			)
+		}
+
+		if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(props.name)) {
+			// Validate repository name
+			throw new NodeSqliteError(
+				"ERR_SQLITE_REPOSITORY",
+				SqlitePrimaryResultCode.SQLITE_MISUSE,
+				"Invalid repository name",
+				`Repository name "${props.name}" must start with a letter or underscore and contain only alphanumeric characters and underscores`,
+				undefined
+			)
+		}
+
+		// Build CREATE TABLE statement
+		const createTableSQL = buildCreateTableSQL(
+			props.name,
+			options?.queryKeys,
+			options?.timestamps ?? props.timestampEnabled
+		)
+
+		try {
+			// Create table if not exists
+			props.db.exec(createTableSQL)
+
+			// Create indexes for queryable columns
+			if (options?.queryKeys) {
+				_createIndexes(props.name, props.db, options.queryKeys, props.logger)
+			}
+
+			// Return new Repository instance
+			return new Repository<T, K>({
+				prepareStatement: props.prepareStatement,
+				serializer: props.serializer,
+				timestamps: props.timestampEnabled,
+				queryKeys: options?.queryKeys,
+				logger: options?.logger ?? props.logger,
+				name: props.name,
+				db: props.db,
+			})
+		} catch (error) {
+			props.logger?.(
+				`Failed to create repository: ${error instanceof Error ? error.message : String(error)}`
+			)
+			throw error instanceof NodeSqliteError
+				? error
+				: NodeSqliteError.fromNodeSqlite(
+						error instanceof Error ? error : new Error(String(error))
+					)
+		}
+	},
+})
+
 class LazyDb {
 	readonly #db: DatabaseSync
 	readonly #logger?: (message: string) => void
@@ -117,100 +228,15 @@ class LazyDb {
 		}
 	}
 
-	repository<T extends EntityType>(
-		name: string,
-		options?: RepositoryOptions<T>
-	): Repository<T> {
-		this.#logger?.(`Creating repository: ${name}`)
-
-		const result = validate(RepositoryOptions, options)
-
-		if (isValidationErrors(result)) {
-			throw new NodeSqliteError(
-				"ERR_SQLITE_REPOSITORY",
-				SqlitePrimaryResultCode.SQLITE_MISUSE,
-				"Invalid repository options",
-				`Repository options validation failed: ${result.map((e) => e.message).join(", ")}`,
-				undefined
-			)
-		}
-
-		// Validate repository name
-		if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
-			throw new NodeSqliteError(
-				"ERR_SQLITE_REPOSITORY",
-				SqlitePrimaryResultCode.SQLITE_MISUSE,
-				"Invalid repository name",
-				`Repository name "${name}" must start with a letter or underscore and contain only alphanumeric characters and underscores`,
-				undefined
-			)
-		}
-
-		// Build CREATE TABLE statement
-		const createTableSQL = this.#buildCreateTableSQL(
+	repository<T extends EntityType>(name: string): RepositoryFactory<T> {
+		return createRepositoryFactory<T>({
+			db: this.#db,
+			logger: this.#logger,
 			name,
-			options?.queryKeys,
-			options?.timestamps ?? this.#timestampEnabled
-		)
-
-		try {
-			// Create table if not exists
-			this.#db.exec(createTableSQL)
-
-			// Create indexes for queryable columns
-			if (options?.queryKeys) {
-				this.#createIndexes(name, options.queryKeys)
-			}
-
-			// Return new Repository instance
-			return new Repository<T>({
-				prepareStatement: this.#prepareStatement,
-				serializer: this.#serializer,
-				timestamps: this.#timestampEnabled,
-				queryKeys: options?.queryKeys,
-				logger: options?.logger ?? this.#logger,
-				name,
-				db: this.#db,
-			})
-		} catch (error) {
-			this.#logger?.(
-				`Failed to create repository: ${error instanceof Error ? error.message : String(error)}`
-			)
-			throw error instanceof NodeSqliteError
-				? error
-				: NodeSqliteError.fromNodeSqlite(
-						error instanceof Error ? error : new Error(String(error))
-					)
-		}
-	}
-
-	#buildCreateTableSQL<T extends EntityType>(
-		name: string,
-		queryKeys?: QueryKeys<T>,
-		timestamps = false
-	): string {
-		return buildCreateTableSQL(name, queryKeys, timestamps)
-	}
-
-	#createIndexes<T extends EntityType>(
-		name: string,
-		queryKeys: QueryKeys<T>
-	): void {
-		const statements = createIndexes(name, queryKeys)
-		for (const sql of statements) {
-			try {
-				this.#db.exec(sql)
-			} catch (error) {
-				this.#logger?.(
-					`Failed to create index: ${error instanceof Error ? error.message : String(error)}`
-				)
-				throw error instanceof NodeSqliteError
-					? error
-					: NodeSqliteError.fromNodeSqlite(
-							error instanceof Error ? error : new Error(String(error))
-						)
-			}
-		}
+			prepareStatement: this.#prepareStatement.bind(this),
+			serializer: this.#serializer,
+			timestampEnabled: this.#timestampEnabled,
+		})
 	}
 
 	#prepareStatement(sql: string): StatementSync {

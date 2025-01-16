@@ -3,8 +3,7 @@
 // license that can be found in the LICENSE file.
 
 import type { SupportedValueType } from "node:sqlite"
-import type { GroupByTuples } from "./group-by.js"
-import type { EntityType, QueryKeys, RepositoryOptions } from "./types.js"
+import type { EntityType, QueryKeys } from "./types.js"
 import {
 	array,
 	bool,
@@ -28,35 +27,25 @@ export const FindOptions = object({
 	groupBy: optional(array(string())),
 })
 
-export type FindOptions<T extends EntityType> = {
-	where?: Where<T>
+export type FindOptions<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+> = {
+	where?: Where<T, QK>
 	limit?: number
 	offset?: number
-	orderBy?: T extends {
-		[K in keyof Required<
-			NonNullable<RepositoryOptions<T>["queryKeys"]>
-		>]: unknown
-	}
-		? Partial<
-				Record<
-					keyof NonNullable<RepositoryOptions<T>["queryKeys"]>,
-					"ASC" | "DESC"
-				>
-			>
-		: never
+	orderBy?: Partial<Record<keyof QK, "ASC" | "DESC">>
 	distinct?: boolean
-	groupBy?: GroupByTuples<
-		keyof NonNullable<RepositoryOptions<T>["queryKeys"]> & string
-	>
+	groupBy?: Array<keyof QK>
 }
 
-export function isGroupByArray<T extends EntityType>(
-	groupBy: FindOptions<T>["groupBy"]
-): groupBy is Extract<FindOptions<T>["groupBy"], string[]> {
+export function isGroupByArray<Q extends QueryKeys<unknown>>(
+	groupBy: unknown
+): groupBy is Array<keyof Q> {
 	return (
 		Array.isArray(groupBy) &&
-		(groupBy as Array<T>).length > 0 &&
-		(groupBy as Array<T>).every((key) => typeof key === "string")
+		(groupBy as Array<unknown>).length > 0 &&
+		(groupBy as Array<unknown>).every((key) => typeof key === "string")
 	)
 }
 
@@ -65,10 +54,13 @@ export interface FindQueryResult {
 	params: SupportedValueType[]
 }
 
-export function buildFindQuery<T extends EntityType>(
+export function buildFindQuery<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+>(
 	tableName: string,
-	options: FindOptions<T>,
-	queryKeys?: QueryKeys<T>
+	options: FindOptions<T, QK>,
+	queryKeys?: QK
 ): FindQueryResult {
 	// Start building the SQL query
 	let sql = `SELECT * FROM ${tableName}`
@@ -85,7 +77,7 @@ export function buildFindQuery<T extends EntityType>(
 
 	// Add GROUP BY clause if provided
 	if (options.groupBy && isGroupByArray(options.groupBy)) {
-		sql += ` GROUP BY ${(options.groupBy as Array<T>).join(", ")}`
+		sql += ` GROUP BY ${(options.groupBy as Array<unknown>).join(", ")}`
 	}
 
 	// Add ORDER BY clause if provided

@@ -3,7 +3,12 @@
 // license that can be found in the LICENSE file.
 
 import type { DatabaseSync, StatementSync } from "node:sqlite"
-import { type Entity, type EntityType, RepositoryOptions } from "./types.js"
+import {
+	type Entity,
+	type EntityType,
+	type QueryKeys,
+	RepositoryOptions,
+} from "./types.js"
 
 import { isValidationErrors, validate } from "./utils.js"
 import {
@@ -17,16 +22,20 @@ import { createRequire } from "node:module"
 import { buildFindQuery, type FindOptions } from "./find.js"
 import { buildInsertManyQuery, buildInsertQuery } from "./sql.js"
 import { buildUpdateManyQuery, buildUpdateQuery } from "./update.js"
+import { buildDeleteManyQuery, buildDeleteQuery } from "./delete.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
 
-export class Repository<T extends EntityType> {
+export class Repository<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+> {
 	readonly #db: DatabaseSync
 	readonly #prepareStatement: (sql: string) => StatementSync
 	readonly #logger?: (msg: string) => void
 	readonly #timestamps: boolean
-	readonly #queryKeys?: RepositoryOptions<T>["queryKeys"]
+	readonly #queryKeys?: QK
 	readonly #serializer: {
 		encode: (obj: unknown) => Uint8Array
 		decode: (buf: Uint8Array) => unknown
@@ -34,7 +43,7 @@ export class Repository<T extends EntityType> {
 	readonly #name: string
 
 	constructor(
-		options: RepositoryOptions<T> & {
+		options: RepositoryOptions<T, QK> & {
 			prepareStatement: (sql: string) => StatementSync
 			db: DatabaseSync
 			name: string
@@ -135,7 +144,7 @@ export class Repository<T extends EntityType> {
 		}
 	}
 
-	find(options: FindOptions<T>): Entity<T>[] {
+	find(options: FindOptions<T, QK>): Entity<T>[] {
 		this.#logger?.(
 			`Starting find operation with options: ${stringify(options)}`
 		)
@@ -206,7 +215,7 @@ export class Repository<T extends EntityType> {
 		}
 	}
 
-	findOne(options: Pick<FindOptions<T>, "where">): Entity<T> | null {
+	findOne(options: Pick<FindOptions<T, QK>, "where">): Entity<T> | null {
 		const result = this.find({ ...options, limit: 1 })
 		return result.length > 0 ? result[0] : null
 	}
@@ -381,7 +390,7 @@ export class Repository<T extends EntityType> {
 	 * @throws {NodeSqliteError} If the update fails
 	 */
 	update(
-		options: Pick<FindOptions<T>, "where">,
+		options: Pick<FindOptions<T, QK>, "where">,
 		updates: Partial<T>
 	): Entity<T> | null {
 		try {
@@ -550,6 +559,173 @@ export class Repository<T extends EntityType> {
 				SqlitePrimaryResultCode.SQLITE_ERROR,
 				"batch update operation failed",
 				"Unexpected error during batch update operation",
+				error instanceof Error ? error : undefined
+			)
+		}
+	}
+
+	/**
+	 * Deletes a single entity by ID.
+	 *
+	 * @param id The ID of the entity to delete
+	 * @returns boolean True if an entity was deleted, false if no entity was found
+	 * @throws {NodeSqliteError} If the deletion fails
+	 */
+	deleteById(id: number): boolean {
+		this.#logger?.(`Deleting entity with ID ${id} from ${this.#name}`)
+
+		try {
+			this.#db.exec("BEGIN TRANSACTION")
+
+			try {
+				const stmt = this.#prepareStatement(
+					`DELETE FROM ${this.#name} WHERE _id = ?`
+				)
+
+				const result = stmt.run(id)
+
+				// Commit transaction
+				this.#db.exec("COMMIT")
+
+				// Return true if a row was deleted, false otherwise
+				return result.changes > 0
+			} catch (error) {
+				// Rollback on any error
+				this.#logger?.("Rolling back transaction due to error")
+				this.#db.exec("ROLLBACK")
+				throw error
+			}
+		} catch (error) {
+			// Handle SQLite-specific errors
+			if (isNodeSqliteError(error)) {
+				throw error
+			}
+
+			// Handle unexpected errors
+			this.#logger?.(
+				`Unexpected error during delete: ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			)
+			throw new NodeSqliteError(
+				"ERR_SQLITE_DELETE",
+				SqlitePrimaryResultCode.SQLITE_ERROR,
+				"delete operation failed",
+				`Unexpected error while deleting entity with ID ${id}`,
+				error instanceof Error ? error : undefined
+			)
+		}
+	}
+
+	/**
+	 * Deletes a single entity that matches the where clause.
+	 *
+	 * @param options Object containing where clause
+	 * @returns boolean True if an entity was deleted, false if no entity was found
+	 * @throws {NodeSqliteError} If the deletion fails
+	 */
+	delete(options: Pick<FindOptions<T, QK>, "where">): boolean {
+		this.#logger?.(
+			`Deleting entity from ${this.#name} with options: ${JSON.stringify(options)}`
+		)
+
+		try {
+			this.#db.exec("BEGIN TRANSACTION")
+
+			try {
+				// Find the entity first to ensure it exists
+				const existing = this.findOne(options)
+				if (!existing) {
+					this.#logger?.("No entities matched deletion criteria")
+					this.#db.exec("ROLLBACK")
+					return false
+				}
+
+				const { sql, params } = buildDeleteQuery(
+					this.#name,
+					options,
+					this.#queryKeys
+				)
+
+				const stmt = this.#prepareStatement(sql)
+				const result = stmt.run(...params)
+
+				this.#db.exec("COMMIT")
+
+				return result.changes > 0
+			} catch (error) {
+				this.#logger?.("Rolling back transaction due to error")
+				this.#db.exec("ROLLBACK")
+				throw error
+			}
+		} catch (error) {
+			if (isNodeSqliteError(error)) {
+				throw error
+			}
+
+			this.#logger?.(
+				`Unexpected error during delete: ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			)
+			throw new NodeSqliteError(
+				"ERR_SQLITE_DELETE",
+				SqlitePrimaryResultCode.SQLITE_ERROR,
+				"delete operation failed",
+				"Unexpected error during delete operation",
+				error instanceof Error ? error : undefined
+			)
+		}
+	}
+
+	/**
+	 * Deletes multiple entities that match the where clause.
+	 *
+	 * @param options Object containing where clause
+	 * @returns number Number of entities deleted
+	 * @throws {NodeSqliteError} If the deletion fails
+	 */
+	deleteMany(options: Pick<FindOptions<T, QK>, "where">): number {
+		this.#logger?.(
+			`Deleting multiple entities from ${this.#name} with options: ${JSON.stringify(options)}`
+		)
+
+		try {
+			this.#db.exec("BEGIN TRANSACTION")
+
+			try {
+				const { sql, params } = buildDeleteManyQuery(
+					this.#name,
+					options,
+					this.#queryKeys
+				)
+
+				const stmt = this.#prepareStatement(sql)
+				const result = stmt.run(...params)
+
+				this.#db.exec("COMMIT")
+
+				return Number(result.changes)
+			} catch (error) {
+				this.#logger?.("Rolling back transaction due to error")
+				this.#db.exec("ROLLBACK")
+				throw error
+			}
+		} catch (error) {
+			if (isNodeSqliteError(error)) {
+				throw error
+			}
+
+			this.#logger?.(
+				`Unexpected error during batch delete: ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			)
+			throw new NodeSqliteError(
+				"ERR_SQLITE_DELETE_MANY",
+				SqlitePrimaryResultCode.SQLITE_ERROR,
+				"batch delete operation failed",
+				"Unexpected error during batch delete operation",
 				error instanceof Error ? error : undefined
 			)
 		}

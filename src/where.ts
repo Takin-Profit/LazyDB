@@ -5,10 +5,12 @@
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
 import { toSqliteValue } from "./sql.js"
 import {
+	type DotPathValue,
 	type EntityType,
 	LazyDbValue,
 	NodeSqliteValue,
 	type QueryKeys,
+	type RepositoryOptions,
 } from "./types.js"
 import {
 	type $,
@@ -41,6 +43,15 @@ export type ComparisonOperator = $<typeof ComparisonOperator>
 
 const LogicalOperator = union([literal("AND"), literal("OR")])
 
+// Helper type to get keys that are actually defined in queryKeys
+export type QueryableKeys<
+	T extends EntityType,
+	QK = NonNullable<RepositoryOptions<T>["queryKeys"]>,
+> = keyof QK & string
+
+// Helper type to get the value type for a queryable key
+export type QueryableValue<T, K extends string> = DotPathValue<T, K>
+
 export type LogicalOperator = $<typeof LogicalOperator>
 
 export const WhereCondition = tuple([
@@ -50,11 +61,21 @@ export const WhereCondition = tuple([
 ])
 
 type InOperator = "IN" | "NOT IN"
-type NonInOperator = Exclude<ComparisonOperator, InOperator>
+type NullOperator = "IS" | "IS NOT"
+type NonInOperator = Exclude<ComparisonOperator, InOperator | NullOperator>
 
-export type WhereCondition<T> = {
-	[K in keyof T]: [K, InOperator, T[K][]] | [K, NonInOperator, T[K]]
-}[keyof T]
+type ValidKeys<QK> = keyof QK & string
+
+// The core WhereCondition type that ensures only valid fields are used
+export type WhereCondition<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+> = {
+	[K in ValidKeys<QK>]:
+		| [K, InOperator, DotPathValue<T, K>[]]
+		| [K, NonInOperator, DotPathValue<T, K>]
+		| [K, NullOperator, null]
+}[ValidKeys<QK>]
 
 const WhereClauseResult = object({
 	sql: string(),
@@ -183,120 +204,123 @@ const ComplexWhereCondition = union([
 	]),
 ])
 
-type ComplexWhereCondition<T> =
-	| [WhereCondition<T>]
-	| [WhereCondition<T>, LogicalOperator, WhereCondition<T>]
+type ComplexWhereCondition<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+> =
+	| [WhereCondition<T, QK>]
+	| [WhereCondition<T, QK>, LogicalOperator, WhereCondition<T, QK>]
 	| [
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 	  ]
 	| [
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 	  ]
 	| [
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 	  ]
 	| [
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 	  ]
 	| [
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 	  ]
 	| [
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 	  ]
 	| [
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 	  ]
 	| [
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 			LogicalOperator,
-			WhereCondition<T>,
+			WhereCondition<T, QK>,
 	  ]
 
 export const Where = union([WhereCondition, ComplexWhereCondition])
@@ -304,12 +328,18 @@ export const Where = union([WhereCondition, ComplexWhereCondition])
 /**
  * Union type for all possible WHERE clause inputs
  */
-export type Where<T> = WhereCondition<T> | ComplexWhereCondition<T>
+export type Where<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+> = WhereCondition<T, QK> | ComplexWhereCondition<T, QK>
 
 // And modify handleSingleCondition to use them both
-function handleSingleCondition<T extends EntityType>(
-	where: WhereCondition<T>,
-	queryKeys?: QueryKeys<T>
+function handleSingleCondition<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+>(
+	where: WhereCondition<T, QK>,
+	queryKeys?: QK
 ): WhereClauseResult & { fields: string[] } {
 	const [field, operator, value] = where
 
@@ -382,9 +412,12 @@ function handleSingleCondition<T extends EntityType>(
 	}
 }
 
-function handleComplexCondition<T extends EntityType>(
-	where: ComplexWhereCondition<T>,
-	queryKeys: QueryKeys<T>
+function handleComplexCondition<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+>(
+	where: ComplexWhereCondition<T, QK>,
+	queryKeys: QK
 ): WhereClauseResult & { fields: string[] } {
 	const parts: string[] = []
 	const operators: LogicalOperator[] = []
@@ -401,7 +434,7 @@ function handleComplexCondition<T extends EntityType>(
 		}
 
 		// Even indices are conditions
-		const condition = item as Where<T>
+		const condition = item as Where<T, QK>
 		const {
 			sql,
 			params: conditionParams,
@@ -427,7 +460,10 @@ function handleComplexCondition<T extends EntityType>(
 	}
 }
 
-function isWhereCondition<T>(where: Where<T>): where is WhereCondition<T> {
+function isWhereCondition<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+>(where: Where<T, QK>): where is WhereCondition<T, QK> {
 	return (
 		Array.isArray(where) &&
 		where.length === 3 &&
@@ -436,9 +472,12 @@ function isWhereCondition<T>(where: Where<T>): where is WhereCondition<T> {
 	)
 }
 
-export function buildWhereClause<T extends EntityType>(
-	where: Where<T>,
-	queryKeys?: QueryKeys<T>
+export function buildWhereClause<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+>(
+	where: Where<T, QK>,
+	queryKeys?: QK
 ): WhereClauseResult & { fields: string[] } {
 	// If no queryKeys, return empty result since there are no queryable fields
 	if (!queryKeys) {

@@ -425,6 +425,7 @@ describe("buildUpdateManyQuery", () => {
 			_id?: number
 			createdAt?: string
 			updatedAt?: string
+			cars: { make: string; model: { mileage: number } }
 		}
 
 		const queryKeys: QueryKeys<TestEntity> = {
@@ -432,6 +433,7 @@ describe("buildUpdateManyQuery", () => {
 			_id: { type: "INTEGER" },
 			createdAt: { type: "TEXT" },
 			updatedAt: { type: "TEXT" },
+			"cars.model.mileage": { type: "INTEGER" },
 		}
 
 		const updates: Partial<TestEntity> = {

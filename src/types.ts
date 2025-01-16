@@ -87,9 +87,41 @@ export const isQueryKeyDef = (data: unknown): data is QueryKeyDef<unknown> =>
 	Object.hasOwn(data, "type") &&
 	typeof (data as QueryKeyDef<unknown>).type === "string"
 
-export type QueryKeys<T extends EntityType> = {
-	[K in keyof T]?: QueryKeyDef<T[K]>
+export type DotPaths<T, Prev extends string = ""> = T extends object // If T extends an object, we iterate over its keys
+	? {
+			[K in keyof T & string]: // For each key, build the "dot prefix"
+			// If Prev is empty, the prefix is just K
+			// Else, prefix is `Prev.K`
+			T[K] extends object
+				? // Recurse into nested objects
+						| DotPaths<T[K], Prev extends "" ? K : `${Prev}.${K}`>
+						// Also include the path itself if you want to treat the entire sub-object as a valid field
+						// (This can be optional, depending on your design.)
+						| (Prev extends "" ? K : `${Prev}.${K}`)
+				: // If T[K] is not an object (string, number, boolean, etc.)
+					// the path is just `Prev.K`
+					Prev extends ""
+					? K
+					: `${Prev}.${K}`
+		}[keyof T & string]
+	: never
+
+export type DotPathValue<T, Path extends string> = Path extends `${
+	infer Left // If Path has a dot, split it into [Left, Rest]
+}.${infer Rest}`
+	? Left extends keyof T
+		? // Recurse into T[Left] with the remainder
+			DotPathValue<T[Left], Rest>
+		: never
+	: // else Path is a single key
+		Path extends keyof T
+		? T[Path]
+		: never
+
+export type QueryKeys<T> = {
+	[P in DotPaths<T>]?: QueryKeyDef<DotPathValue<T, P>>
 }
+
 export const validateQueryKeys = (data: unknown) => validate(QueryKeys, data)
 
 export type Entity<T extends EntityType> = {
@@ -124,7 +156,6 @@ export const DatabaseOptions = object({
 export type DatabaseOptions = $<typeof DatabaseOptions>
 
 export const RepositoryOptions = object({
-	prepareStatement: func([string()], unknown()),
 	timestamps: optional(bool()),
 	queryKeys: optional(QueryKeys),
 	serializer: object({
@@ -134,9 +165,11 @@ export const RepositoryOptions = object({
 	logger: optional(func([string()], unit())),
 })
 
-export type RepositoryOptions<T extends EntityType> = Readonly<{
-	queryKeys?: QueryKeys<T>
-	prepareStatement: (sql: string) => StatementSync
+export type RepositoryOptions<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+> = Readonly<{
+	queryKeys?: QK
 	timestamps?: boolean
 	serializer: {
 		encode: (obj: unknown) => Uint8Array

@@ -6,7 +6,7 @@ import assert from "node:assert"
 import { buildWhereClause } from "./where.js"
 import { NodeSqliteError } from "./errors.js"
 import type { QueryKeys } from "./types.js"
-import type { Where, WhereCondition } from "./where.js"
+import type { Where } from "./where.js"
 import fc from "fast-check"
 
 test("buildWhereClause - Simple Conditions", async (t) => {
@@ -27,7 +27,7 @@ test("buildWhereClause - Simple Conditions", async (t) => {
 	}
 
 	await t.test("basic equals condition", () => {
-		const result = buildWhereClause(["name", "=", "John"], queryKeys)
+		const result = buildWhereClause<BasicData>(["name", "=", "John"], queryKeys)
 		assert.deepStrictEqual(result, {
 			sql: "name = ?",
 			params: ["John"],
@@ -36,7 +36,7 @@ test("buildWhereClause - Simple Conditions", async (t) => {
 	})
 
 	await t.test("numeric comparison", () => {
-		const result = buildWhereClause(["age", ">", 18], queryKeys)
+		const result = buildWhereClause<BasicData>(["age", ">", 18], queryKeys)
 		assert.deepStrictEqual(result, {
 			sql: "age > ?",
 			params: [18],
@@ -45,7 +45,7 @@ test("buildWhereClause - Simple Conditions", async (t) => {
 	})
 
 	await t.test("boolean value", () => {
-		const result = buildWhereClause(["active", "=", true], queryKeys)
+		const result = buildWhereClause<BasicData>(["active", "=", true], queryKeys)
 		assert.deepStrictEqual(result, {
 			sql: "active = ?",
 			params: [1],
@@ -54,7 +54,7 @@ test("buildWhereClause - Simple Conditions", async (t) => {
 	})
 
 	await t.test("null comparison with IS", () => {
-		const result = buildWhereClause(
+		const result = buildWhereClause<BasicData>(
 			["deletedAt", "IS", null] as unknown as Where<BasicData>,
 			queryKeys
 		)
@@ -66,7 +66,7 @@ test("buildWhereClause - Simple Conditions", async (t) => {
 	})
 
 	await t.test("LIKE operator", () => {
-		const result = buildWhereClause(
+		const result = buildWhereClause<BasicData>(
 			["email", "LIKE", "%@example.com"],
 			queryKeys
 		)
@@ -90,7 +90,7 @@ test("buildWhereClause - IN Conditions", async (t) => {
 	}
 
 	await t.test("IN with array of strings", () => {
-		const result = buildWhereClause(
+		const result = buildWhereClause<StatusData, typeof queryKeys>(
 			["status", "IN", ["active", "pending"]],
 			queryKeys
 		)
@@ -102,7 +102,10 @@ test("buildWhereClause - IN Conditions", async (t) => {
 	})
 
 	await t.test("NOT IN with array of numbers", () => {
-		const result = buildWhereClause(["id", "NOT IN", [1, 2, 3]], queryKeys)
+		const result = buildWhereClause<StatusData, typeof queryKeys>(
+			["id", "NOT IN", [1, 2, 3]],
+			queryKeys
+		)
 		assert.deepStrictEqual(result, {
 			sql: "id NOT IN (?, ?, ?)",
 			params: [1, 2, 3],
@@ -112,7 +115,11 @@ test("buildWhereClause - IN Conditions", async (t) => {
 
 	await t.test("IN with empty array should throw", () => {
 		assert.throws(
-			() => buildWhereClause(["status", "IN", []], queryKeys),
+			() =>
+				buildWhereClause<StatusData, typeof queryKeys>(
+					["status", "IN", []],
+					queryKeys
+				),
 			NodeSqliteError
 		)
 	})
@@ -134,8 +141,8 @@ test("buildWhereClause - Complex Conditions", async (t) => {
 	}
 
 	await t.test("simple AND condition", () => {
-		const result = buildWhereClause(
-			[["age", ">=", 18], "AND", ["active", "=", true]] as Where<ComplexData>,
+		const result = buildWhereClause<ComplexData, typeof queryKeys>(
+			[["age", ">=", 18], "AND", ["active", "=", true]],
 			queryKeys
 		)
 		assert.deepStrictEqual(result, {
@@ -146,7 +153,7 @@ test("buildWhereClause - Complex Conditions", async (t) => {
 	})
 
 	await t.test("OR condition", () => {
-		const result = buildWhereClause(
+		const result = buildWhereClause<ComplexData, typeof queryKeys>(
 			[
 				["status", "=", "pending"],
 				"OR",
@@ -162,14 +169,14 @@ test("buildWhereClause - Complex Conditions", async (t) => {
 	})
 
 	await t.test("complex AND/OR combination", () => {
-		const result = buildWhereClause(
+		const result = buildWhereClause<ComplexData, typeof queryKeys>(
 			[
 				["age", ">=", 18],
 				"AND",
 				["status", "=", "active"],
 				"OR",
 				["role", "IN", ["admin", "moderator"]],
-			] as Where<ComplexData>,
+			],
 			queryKeys
 		)
 		assert.deepStrictEqual(result, {
@@ -182,7 +189,7 @@ test("buildWhereClause - Complex Conditions", async (t) => {
 
 test("buildWhereClause - No QueryKeys", async (t) => {
 	await t.test("returns empty result with no queryKeys", () => {
-		const result = buildWhereClause(["field", "=", "value"])
+		const result = buildWhereClause<{ field: string }>(["field", "=", "value"])
 		assert.deepStrictEqual(result, {
 			sql: "",
 			params: [],
@@ -193,7 +200,7 @@ test("buildWhereClause - No QueryKeys", async (t) => {
 	await t.test(
 		"returns empty result with complex condition and no queryKeys",
 		() => {
-			const result = buildWhereClause([
+			const result = buildWhereClause<{ field1: string; field2: string }>([
 				["field1", "=", "value1"],
 				"AND",
 				["field2", "=", "value2"],
@@ -247,8 +254,8 @@ test("buildWhereClause - Error Cases", async (t) => {
 	await t.test("IS operator with non-null value", () => {
 		assert.throws(
 			() =>
-				buildWhereClause(
-					["status", "IS", "active"] as WhereCondition<ErrorData>,
+				buildWhereClause<{ status: string }>(
+					["status", "IS", "active"] as unknown as Where<{ status: string }>,
 					queryKeys
 				),
 			NodeSqliteError
@@ -258,8 +265,8 @@ test("buildWhereClause - Error Cases", async (t) => {
 	await t.test("IN operator with non-array value", () => {
 		assert.throws(
 			() =>
-				buildWhereClause(
-					["status", "IN", "active"] as unknown as WhereCondition<ErrorData>,
+				buildWhereClause<{ status: string }>(
+					["status", "IN", "active" as unknown as []],
 					queryKeys
 				),
 			NodeSqliteError
@@ -292,16 +299,13 @@ test("buildWhereClause - Edge Cases", async (t) => {
 
 	await t.test("very long IN clause", () => {
 		const values = Array.from({ length: 1000 }, (_, i) => i)
-		const result = buildWhereClause(
-			["id", "IN", values] as WhereCondition<EdgeData>,
-			queryKeys
-		)
+		const result = buildWhereClause<EdgeData>(["id", "IN", values], queryKeys)
 		assert.strictEqual(result.params.length, 1000)
 		assert.strictEqual(result.sql.split("?").length - 1, 1000)
 	})
 
 	await t.test("deeply nested conditions", () => {
-		const result = buildWhereClause(
+		const result = buildWhereClause<EdgeData>(
 			[
 				["a", "=", 1],
 				"AND",
@@ -312,7 +316,7 @@ test("buildWhereClause - Edge Cases", async (t) => {
 				["d", "=", 4],
 				"AND",
 				["e", "=", 5],
-			] as Where<EdgeData>,
+			],
 			queryKeys
 		)
 		assert.strictEqual(result.params.length, 5)
@@ -323,7 +327,10 @@ test("buildWhereClause - Edge Cases", async (t) => {
 		const specialQueryKeys: QueryKeys<{ name: string }> = {
 			name: { type: "TEXT" },
 		}
-		const result = buildWhereClause(["name", "=", "test"], specialQueryKeys)
+		const result = buildWhereClause<EdgeData>(
+			["name", "=", "test"],
+			specialQueryKeys
+		)
 		assert.strictEqual(result.sql, "name = ?")
 	})
 })
@@ -394,16 +401,16 @@ test("buildWhereClause - Type Enforcement", async (t) => {
 
 	await t.test("accepts correct types", () => {
 		assert.doesNotThrow(() =>
-			buildWhereClause(["intField", "=", 123], queryKeys)
+			buildWhereClause<Data>(["intField", "=", 123], queryKeys)
 		)
 		assert.doesNotThrow(() =>
-			buildWhereClause(["textField", "=", "hello"], queryKeys)
+			buildWhereClause<Data>(["textField", "=", "hello"], queryKeys)
 		)
 		assert.doesNotThrow(() =>
-			buildWhereClause(["realField", "=", 123.45], queryKeys)
+			buildWhereClause<Data>(["realField", "=", 123.45], queryKeys)
 		)
 		assert.doesNotThrow(() =>
-			buildWhereClause(["boolField", "=", true], queryKeys)
+			buildWhereClause<Data>(["boolField", "=", true], queryKeys)
 		)
 	})
 })
@@ -456,8 +463,14 @@ test("buildWhereClause - Property Tests", async (t) => {
 
 		fc.assert(
 			fc.property(fc.integer(), fc.integer(), (a, _) => {
-				const greaterThan = buildWhereClause(["value", ">", a], queryKeys)
-				const lessThanOrEqual = buildWhereClause(["value", "<=", a], queryKeys)
+				const greaterThan = buildWhereClause<{ value: number }>(
+					["value", ">", a],
+					queryKeys
+				)
+				const lessThanOrEqual = buildWhereClause<{ value: number }>(
+					["value", "<=", a],
+					queryKeys
+				)
 
 				// These conditions should be mutually exclusive
 				assert.notDeepStrictEqual(greaterThan, lessThanOrEqual)
@@ -470,8 +483,14 @@ test("buildWhereClause - Property Tests", async (t) => {
 			nullable: { type: "TEXT" },
 		}
 
-		const isNull = buildWhereClause(["nullable", "IS", null], queryKeys)
-		const isNotNull = buildWhereClause(["nullable", "IS NOT", null], queryKeys)
+		const isNull = buildWhereClause<{ nullable: string | null }>(
+			["nullable", "IS", null],
+			queryKeys
+		)
+		const isNotNull = buildWhereClause<{ nullable: string | null }>(
+			["nullable", "IS NOT", null],
+			queryKeys
+		)
 
 		// IS NULL and IS NOT NULL should generate different SQL
 		assert.notEqual(isNull.sql, isNotNull.sql)
@@ -489,8 +508,8 @@ test("buildWhereClause - Property Tests", async (t) => {
 			fc.property(
 				fc.array(fc.integer(), { minLength: 1, maxLength: 100 }),
 				(numbers) => {
-					const result = buildWhereClause(
-						["ids", "IN", numbers] as WhereCondition<{ ids: number }>,
+					const result = buildWhereClause<{ ids: number }>(
+						["ids", "IN", numbers],
 						queryKeys
 					)
 

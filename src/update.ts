@@ -27,11 +27,11 @@ interface UpdateQueryResult {
  * @param timestamps Whether to include timestamp fields
  * @returns Object containing the SQL query and parameters
  */
-export function buildUpdateQuery<T extends EntityType>(
+export function buildUpdateQuery<T extends EntityType, QK extends QueryKeys<T>>(
 	tableName: string,
 	entity: Partial<T>,
-	where: Pick<FindOptions<T>, "where">,
-	queryKeys?: QueryKeys<T>,
+	where: Pick<FindOptions<T, QK>, "where">,
+	queryKeys?: QK,
 	timestamps = false
 ): UpdateQueryResult {
 	const setColumns: string[] = []
@@ -87,11 +87,14 @@ export function buildUpdateQuery<T extends EntityType>(
  * @param timestamps Whether to include timestamp fields
  * @returns Object containing the SQL query and parameters
  */
-export function buildUpdateManyQuery<T extends EntityType>(
+export function buildUpdateManyQuery<
+	T extends EntityType,
+	QK extends QueryKeys<T>,
+>(
 	tableName: string,
 	updates: Partial<T>,
-	where: Pick<FindOptions<T>, "where">,
-	queryKeys?: QueryKeys<T>,
+	where: Pick<FindOptions<T, QK>, "where">,
+	queryKeys?: QK,
 	timestamps = false
 ): UpdateQueryResult {
 	if (!queryKeys) {
