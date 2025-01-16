@@ -223,8 +223,6 @@ describe("buildInsertManyQuery", () => {
 			false
 		)
 
-		console.log(`the sql is ${sql}, the values is ${values}`)
-
 		// Test SQL structure
 		assert.match(sql, /INSERT INTO test_table/)
 		assert.ok(!sql.includes("createdAt"))

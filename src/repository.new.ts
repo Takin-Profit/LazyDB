@@ -16,7 +16,7 @@ import type stringifyLib from "fast-safe-stringify"
 import { createRequire } from "node:module"
 import { buildFindQuery, type FindOptions } from "./find.js"
 import { buildInsertManyQuery, buildInsertQuery } from "./sql.js"
-import { buildUpdateQuery } from "./update.js"
+import { buildUpdateManyQuery, buildUpdateQuery } from "./update.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -376,13 +376,13 @@ export class Repository<T extends EntityType> {
 	 * Returns the first updated entity or null if no entities were updated.
 	 *
 	 * @param options Object containing where clause
-	 * @param entity Partial entity containing fields to update
+	 * @param updates Partial entity containing fields to update
 	 * @returns Updated entity or null if no entities were updated
 	 * @throws {NodeSqliteError} If the update fails
 	 */
 	update(
 		options: Pick<FindOptions<T>, "where">,
-		entity: Partial<T>
+		updates: Partial<T>
 	): Entity<T> | null {
 		try {
 			this.#logger?.(
@@ -393,10 +393,28 @@ export class Repository<T extends EntityType> {
 			this.#db.exec("BEGIN TRANSACTION")
 
 			try {
+				// First find the existing entity
+				const existing = this.findOne(options)
+				if (!existing) {
+					this.#logger?.("No entities matched update criteria")
+					this.#db.exec("ROLLBACK")
+					return null
+				}
+
+				// Merge updates with existing entity
+				const merged = {
+					...existing,
+					...updates,
+				}
+
+				// Destructure out the fields we don't want, collecting the rest
+				const { _id, createdAt, updatedAt, ...mergedWithoutSystemFields } =
+					merged
+
 				// Build the update query
 				const { sql, params } = buildUpdateQuery(
 					this.#name,
-					entity,
+					mergedWithoutSystemFields as T,
 					options,
 					this.#queryKeys,
 					this.#timestamps
@@ -406,26 +424,18 @@ export class Repository<T extends EntityType> {
 				const stmt = this.#prepareStatement(sql)
 
 				// Create serialized data for the update
-				const serializedData = this.#serializer.encode(entity)
+				const serializedData = this.#serializer.encode(merged)
 
 				// Execute the update with params and serialized data
-				const result = stmt.get(...params, serializedData) as
-					| {
-							_id: number
-							__lazy_data: Uint8Array
-							createdAt?: string
-							updatedAt?: string
-					  }
-					| undefined
+				const result = stmt.get(...params, serializedData) as {
+					_id: number
+					__lazy_data: Uint8Array
+					createdAt?: string
+					updatedAt?: string
+				}
 
 				// Commit transaction
 				this.#db.exec("COMMIT")
-
-				// If no rows were updated, return null
-				if (!result) {
-					this.#logger?.("No entities matched update criteria")
-					return null
-				}
 
 				// Deserialize and return the updated entity
 				try {
@@ -473,6 +483,73 @@ export class Repository<T extends EntityType> {
 				SqlitePrimaryResultCode.SQLITE_ERROR,
 				"update operation failed",
 				"Unexpected error during update operation",
+				error instanceof Error ? error : undefined
+			)
+		}
+	}
+
+	/**
+	 * Updates multiple entities that match the where clause with the provided queryable fields.
+	 * Only updates fields defined in queryKeys.
+	 *
+	 * @param options Object containing where clause
+	 * @param updates Partial entity containing fields to update (only queryable fields will be updated)
+	 * @returns Number of entities updated
+	 * @throws {NodeSqliteError} If the update fails or if trying to update non-queryable fields
+	 */
+	updateMany(
+		options: Pick<FindOptions<T>, "where">,
+		updates: Partial<T>
+	): number {
+		try {
+			this.#logger?.(
+				`Updating multiple entities in ${this.#name} with options: ${JSON.stringify(options)}`
+			)
+
+			// Start a transaction
+			this.#db.exec("BEGIN TRANSACTION")
+
+			try {
+				// Build and execute update query
+				const { sql, params } = buildUpdateManyQuery(
+					this.#name,
+					updates,
+					options,
+					this.#queryKeys,
+					this.#timestamps
+				)
+
+				const stmt = this.#prepareStatement(sql)
+				const result = stmt.run(...params)
+
+				// Commit transaction
+				this.#db.exec("COMMIT")
+
+				// Return number of rows updated
+				return Number(result.changes)
+			} catch (error) {
+				// Rollback on any error
+				this.#logger?.("Rolling back transaction due to error")
+				this.#db.exec("ROLLBACK")
+				throw error
+			}
+		} catch (error) {
+			// Handle SQLite-specific errors
+			if (isNodeSqliteError(error)) {
+				throw error
+			}
+
+			// Handle unexpected errors
+			this.#logger?.(
+				`Unexpected error during batch update: ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			)
+			throw new NodeSqliteError(
+				"ERR_SQLITE_UPDATE_MANY",
+				SqlitePrimaryResultCode.SQLITE_ERROR,
+				"batch update operation failed",
+				"Unexpected error during batch update operation",
 				error instanceof Error ? error : undefined
 			)
 		}
