@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
-import type { EntityType, QueryKeys } from "./types.js"
+import { isQueryKeyDef, type EntityType, type QueryKeys } from "./types.js"
 
 /**
  * Gets a value from a nested object using dot notation
@@ -98,4 +98,73 @@ export function extractQueryableValues<T extends EntityType>(
 	}
 
 	return result
+}
+
+/**
+ * Converts query keys with dot notation to SQL column definitions
+ * @param queryKeys The query keys configuration
+ * @returns Array of SQL column definitions
+ */
+export function createNestedColumnDefinitions<T extends EntityType>(
+	queryKeys: QueryKeys<T>
+): string[] {
+	const columns: string[] = []
+
+	for (const [path, def] of Object.entries(queryKeys)) {
+		if (!path.includes(".")) {
+			continue // Skip non-nested paths
+		}
+
+		const columnName = pathToColumnName(path)
+		const constraints: string[] = []
+
+		if (!def.nullable) {
+			constraints.push("NOT NULL")
+		}
+
+		if (def.unique) {
+			constraints.push("UNIQUE")
+		}
+
+		if (def.default !== undefined) {
+			constraints.push(
+				`DEFAULT ${typeof def.default === "string" ? `'${def.default}'` : def.default}`
+			)
+		}
+
+		columns.push(
+			`${columnName} ${def.type}${constraints.length ? ` ${constraints.join(" ")}` : ""}`
+		)
+	}
+
+	return columns
+}
+
+/**
+ * Creates index definitions for nested path columns
+ * @param tableName The name of the table
+ * @param queryKeys The query keys configuration
+ * @returns Array of CREATE INDEX statements
+ */
+export function createNestedIndexDefinitions<T extends EntityType>(
+	tableName: string,
+	queryKeys: QueryKeys<T>
+): string[] {
+	const indexes: string[] = []
+
+	for (const [path, def] of Object.entries(queryKeys)) {
+		if (!isQueryKeyDef(def) || !path.includes(".")) {
+			continue
+		}
+
+		const columnName = pathToColumnName(path)
+		const indexName = `idx_${tableName}_${columnName}`
+		const unique = def.unique ? " UNIQUE" : ""
+
+		indexes.push(
+			`CREATE${unique} INDEX IF NOT EXISTS ${indexName} ON ${tableName}(${columnName})`
+		)
+	}
+
+	return indexes
 }

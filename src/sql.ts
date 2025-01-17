@@ -15,6 +15,11 @@ import {
 	type QueryKeys,
 } from "./types.js"
 import { isValidationErrors } from "./utils.js"
+import {
+	createNestedColumnDefinitions,
+	createNestedIndexDefinitions,
+	extractQueryableValues,
+} from "./paths.js"
 
 export function buildCreateTableSQL<T extends EntityType>(
 	name: string,
@@ -37,7 +42,7 @@ export function buildCreateTableSQL<T extends EntityType>(
 			)
 		}
 
-		// Add columns for queryable fields
+		// Add columns for regular queryable fields
 		for (const [field, def] of Object.entries(queryKeys)) {
 			const constraints: string[] = []
 
@@ -61,6 +66,10 @@ export function buildCreateTableSQL<T extends EntityType>(
 					`${field} ${def.type}${constraints?.length ? ` ${constraints.join(" ")}` : ""}`
 				)
 			}
+
+			// Add columns for nested fields
+			const nestedColumns = createNestedColumnDefinitions(queryKeys)
+			columns.push(...nestedColumns)
 		}
 	}
 
@@ -76,18 +85,25 @@ export function buildCreateTableSQL<T extends EntityType>(
 	return `CREATE TABLE IF NOT EXISTS ${name} (${columns.join(", ")})`
 }
 
-export const createIndexes = <T extends EntityType>(
+export function createIndexes<T extends EntityType>(
 	name: string,
 	queryKeys: QueryKeysSchema<T>
-) =>
-	Object.entries(queryKeys).map(([field, def]) => {
-		if (isQueryKeyDef(def)) {
-			const indexName = `idx_${name}_${field}`
-			const indexType = def?.unique ? " UNIQUE" : ""
-			return `CREATE${indexType} INDEX IF NOT EXISTS ${indexName} ON ${name}(${field})`
-		}
-		return ""
-	})
+): string[] {
+	const regularIndexes = Object.entries(queryKeys)
+		.map(([field, def]) => {
+			if (!field.includes(".") && isQueryKeyDef(def)) {
+				const indexName = `idx_${name}_${field}`
+				const indexType = def?.unique ? " UNIQUE" : ""
+				return `CREATE${indexType} INDEX IF NOT EXISTS ${indexName} ON ${name}(${field})`
+			}
+			return ""
+		})
+		.filter(Boolean)
+
+	const nestedIndexes = createNestedIndexDefinitions(name, queryKeys)
+
+	return [...regularIndexes, ...nestedIndexes]
+}
 
 export function toSqliteValue(
 	value: LazyDbValue,
@@ -171,19 +187,29 @@ export function buildInsertQuery<T extends Record<string, unknown> | object>(
 	const placeholders: string[] = []
 
 	const ignorableFields = ["_id", "createdAt", "updatedAt"]
-	// Add queryable fields if they exist
 	if (queryKeys) {
+		// Add queryable fields if they exist
 		for (const [field, def] of Object.entries(queryKeys)) {
 			if (ignorableFields.includes(field)) {
 				continue
 			}
-			const value =
-				entity[field as keyof Omit<T, "_id" | "createdAt" | "updatedAt">]
-			if (field in entity && isQueryKeyDef(def) && value !== undefined) {
-				columns.push(field)
-				values.push(toSqliteValue(value as unknown as LazyDbValue, def.type))
-				placeholders.push("?")
+			if (!field.includes(".") && isQueryKeyDef(def)) {
+				const value =
+					entity[field as keyof Omit<T, "_id" | "createdAt" | "updatedAt">]
+				if (field in entity) {
+					columns.push(field)
+					values.push(toSqliteValue(value as unknown as LazyDbValue, def.type))
+					placeholders.push("?")
+				}
 			}
+		}
+
+		// Handle nested fields
+		const nestedValues = extractQueryableValues(entity, queryKeys)
+		for (const [columnName, value] of Object.entries(nestedValues)) {
+			columns.push(columnName)
+			values.push(value as SupportedValueType)
+			placeholders.push("?")
 		}
 	}
 

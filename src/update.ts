@@ -12,6 +12,7 @@ import {
 import type { FindOptions } from "./find.js"
 import { buildReturningClause, toSqliteValue } from "./sql.js"
 import { buildWhereClause } from "./where.js"
+import { extractQueryableValues } from "./paths.js"
 
 interface UpdateQueryResult {
 	sql: string
@@ -47,12 +48,23 @@ export function buildUpdateQuery<
 			if (ignorableFields.includes(field)) {
 				continue
 			}
-
-			const value = entity[field as keyof Partial<T>]
-			if (field in entity && isQueryKeyDef(def)) {
-				setColumns.push(`${field} = ?`)
-				params.push(toSqliteValue(value as LazyDbValue, def.type))
+			if (!field.includes(".")) {
+				const value = entity[field as keyof Partial<T>]
+				if (field in entity && isQueryKeyDef(def)) {
+					setColumns.push(`${field} = ?`)
+					params.push(toSqliteValue(value as LazyDbValue, def.type))
+				}
 			}
+		}
+
+		// Handle nested fields
+		const nestedValues = extractQueryableValues(
+			entity,
+			queryKeys as QueryKeys<Partial<T>>
+		)
+		for (const [columnName, value] of Object.entries(nestedValues)) {
+			setColumns.push(`${columnName} = ?`)
+			params.push(value as SupportedValueType)
 		}
 	}
 
