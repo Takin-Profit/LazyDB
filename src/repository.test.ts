@@ -62,7 +62,6 @@ beforeEach(() => {
 		location: ":memory:",
 		timestamps: true,
 		serializer: "json",
-		logger: console.log,
 	})
 
 	simpleRepo = db.repository<SimpleEntity>("test").create({
@@ -143,9 +142,7 @@ test("handles complex WHERE conditions", async () => {
 		createTestUser(35, false, "2025-01-03"),
 	]
 
-	for (const user of testUsers) {
-		userRepo.insert(user)
-	}
+	userRepo.insertMany(testUsers)
 
 	const results = userRepo.find({
 		where: [

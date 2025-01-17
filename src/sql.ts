@@ -264,7 +264,9 @@ export function buildInsertManyQuery<T extends EntityType>(
 			}
 
 			if (isQueryKeyDef(def)) {
-				columns.push(field)
+				// Replace dots with underscores for nested fields
+				const columnName = field.replace(/\./g, "_")
+				columns.push(columnName)
 				placeholders.push("?")
 			}
 		}
@@ -276,8 +278,8 @@ export function buildInsertManyQuery<T extends EntityType>(
 
 	// Build the base SQL query
 	const sql = `INSERT INTO ${tableName} (${columns.join(", ")})
-                 VALUES (${placeholders.join(", ")})
-                 ${buildReturningClause(timestamps)}`
+               VALUES (${placeholders.join(", ")})
+               ${buildReturningClause(timestamps)}`
 
 	// Build values array for each entity
 	for (const entity of entities) {
@@ -289,10 +291,16 @@ export function buildInsertManyQuery<T extends EntityType>(
 					continue
 				}
 
-				const value =
-					entity[field as keyof Omit<T, "_id" | "createdAt" | "updatedAt">]
-				if (field in entity && isQueryKeyDef(def) && value !== undefined) {
-					entityValues.push(toSqliteValue(value as LazyDbValue, def.type))
+				if (isQueryKeyDef(def)) {
+					const path = field.split(".")
+					let value = entity
+					for (const key of path) {
+						value = value?.[key as keyof typeof value] as T
+					}
+
+					if (field in entity || value !== undefined) {
+						entityValues.push(toSqliteValue(value as LazyDbValue, def.type))
+					}
 				}
 			}
 		}

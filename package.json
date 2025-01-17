@@ -19,7 +19,7 @@
   "scripts": {
     "build": "pkgroll --tsconfig tsconfig.build.json",
     "try": "tsx ./try.mts",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "tsx --test --experimental-sqlite src/**/*.test.ts",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
@@ -62,7 +62,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=16"
+    "node": ">=22.50"
   },
   "funding": {
     "type": "github",

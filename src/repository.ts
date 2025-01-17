@@ -552,14 +552,26 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 						this.#timestamps
 					)
 
+					this.#logger?.(
+						`Executing update query: ${sql} with params: ${stringify(params)}`
+					)
+
 					// Prepare statement
 					const stmt = this.#prepareStatement(sql)
 
 					// Serialize the merged data
 					const serializedData = this.#serializer.encode(merged)
 
+					// Then just before stmt.run(...params, serializedData):
+					this.#logger?.(
+						`Final arguments to run:
+						${stringify([...params, serializedData])}`
+					)
+
 					// Execute the update with serialized data
 					const result = stmt.run(...params, serializedData)
+
+					this.#logger?.(`Update returned changes: ${result.changes}`)
 
 					updateCount += Number(result.changes)
 				}
@@ -577,6 +589,7 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 			}
 		} catch (error) {
 			if (isNodeSqliteError(error)) {
+				this.#logger?.(`Caught NodeSqliteError: ${error.message}`)
 				throw error
 			}
 
