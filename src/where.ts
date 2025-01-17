@@ -367,7 +367,10 @@ function handleComplexCondition<
 export function buildWhereClause<
 	T extends EntityType,
 	QK extends QueryKeys<T> = QueryKeys<T>,
->(where: Where<T, QK>, queryKeys?: QK): WhereClauseResult {
+>(where?: Where<T, QK>, queryKeys?: QK): WhereClauseResult {
+	if (!where) {
+		return { sql: "", params: [], fields: [] }
+	}
 	if (!queryKeys) {
 		return { sql: "", params: [], fields: [] }
 	}

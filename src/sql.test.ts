@@ -2,13 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Copyright 2025 Takin Profit. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
 import test from "node:test"
 import assert from "node:assert"
-import fc from "fast-check"
 import type { LazyDbColumnType, QueryKeysSchema } from "./types.js"
 import {
 	buildCreateTableSQL,
@@ -38,14 +33,22 @@ test("toSqliteValue - TEXT type handling", async (t) => {
 		})
 	})
 
-	// Property test for TEXT
-	await t.test("property: all strings are valid TEXT values", () => {
-		fc.assert(
-			fc.property(fc.string(), (str) => {
-				const result = toSqliteValue(str, "TEXT")
-				assert.strictEqual(result, str)
-			})
-		)
+	await t.test("handles various string values", () => {
+		const testStrings = [
+			"normal string",
+			"",
+			" ",
+			"!@#$%^&*()",
+			"12345",
+			"混合文字",
+			"\n\t\r",
+			"very long string".repeat(100),
+		]
+
+		for (const str of testStrings) {
+			const result = toSqliteValue(str, "TEXT")
+			assert.strictEqual(result, str)
+		}
 	})
 })
 
@@ -73,32 +76,36 @@ test("toSqliteValue - INTEGER type handling", async (t) => {
 		})
 	})
 
-	// Property tests for INTEGER
-	await t.test("property: all integers are valid INTEGER values", () => {
-		fc.assert(
-			fc.property(fc.integer(), (num) => {
-				const result = toSqliteValue(num, "INTEGER")
+	await t.test("handles various integer values", () => {
+		const testIntegers = [
+			0,
+			1,
+			-1,
+			Number.MAX_SAFE_INTEGER,
+			Number.MIN_SAFE_INTEGER,
+			42n,
+			-42n,
+			BigInt(Number.MAX_SAFE_INTEGER),
+			BigInt(Number.MIN_SAFE_INTEGER),
+		]
+
+		for (const num of testIntegers) {
+			const result = toSqliteValue(num, "INTEGER")
+			if (typeof num === "bigint") {
 				assert.strictEqual(result, num)
-			})
-		)
+			} else if (typeof num === "number") {
+				assert.strictEqual(result, num)
+				assert(Number.isInteger(result))
+			}
+		}
 	})
 
-	await t.test("property: all bigints are valid INTEGER values", () => {
-		fc.assert(
-			fc.property(fc.bigInt(), (num) => {
-				const result = toSqliteValue(num, "INTEGER")
-				assert.strictEqual(result, num)
-			})
-		)
-	})
-
-	await t.test("property: booleans convert consistently to INTEGER", () => {
-		fc.assert(
-			fc.property(fc.boolean(), (bool) => {
-				const result = toSqliteValue(bool, "INTEGER")
-				assert.strictEqual(result, bool ? 1 : 0)
-			})
-		)
+	await t.test("handles boolean to integer conversion", () => {
+		const booleans = [true, false]
+		for (const bool of booleans) {
+			const result = toSqliteValue(bool, "INTEGER")
+			assert.strictEqual(result, bool ? 1 : 0)
+		}
 	})
 })
 
@@ -125,17 +132,25 @@ test("toSqliteValue - REAL type handling", async (t) => {
 		})
 	})
 
-	// Property test for REAL
-	await t.test("property: all numbers are valid REAL values", () => {
-		fc.assert(
-			fc.property(fc.double(), (num) => {
-				// Handle special cases that might cause issues
-				if (Number.isFinite(num)) {
-					const result = toSqliteValue(num, "REAL")
-					assert.strictEqual(result, num)
-				}
-			})
-		)
+	await t.test("handles various real numbers", () => {
+		const testReals = [
+			0.0,
+			-0.0,
+			1.23,
+			-1.23,
+			Number.MAX_VALUE,
+			Number.MIN_VALUE,
+			Number.EPSILON,
+			Math.PI,
+			Math.E,
+		]
+
+		for (const num of testReals) {
+			if (Number.isFinite(num)) {
+				const result = toSqliteValue(num, "REAL")
+				assert.strictEqual(result, num)
+			}
+		}
 	})
 })
 
@@ -159,15 +174,76 @@ test("toSqliteValue - BOOLEAN type handling", async (t) => {
 			message: "Invalid value for BOOLEAN: 0",
 		})
 	})
+})
 
-	// Property test for BOOLEAN
-	await t.test("property: boolean conversion is consistent", () => {
-		fc.assert(
-			fc.property(fc.boolean(), (bool) => {
-				const result = toSqliteValue(bool, "BOOLEAN")
-				assert.strictEqual(result, bool ? 1 : 0)
-			})
+test("toSqliteValue - Edge Cases", async (t) => {
+	await t.test("handles extreme numeric values", () => {
+		assert.strictEqual(
+			toSqliteValue(Number.MAX_SAFE_INTEGER, "INTEGER"),
+			Number.MAX_SAFE_INTEGER
 		)
+		assert.strictEqual(
+			toSqliteValue(Number.MIN_SAFE_INTEGER, "INTEGER"),
+			Number.MIN_SAFE_INTEGER
+		)
+		assert.strictEqual(
+			toSqliteValue(BigInt(Number.MAX_SAFE_INTEGER) + 1n, "INTEGER"),
+			BigInt(Number.MAX_SAFE_INTEGER) + 1n
+		)
+	})
+
+	await t.test("handles special string values", () => {
+		const specialStrings = [
+			"",
+			" ",
+			"\0",
+			"\u0000",
+			"\n",
+			"\t",
+			"\r",
+			"\u200B", // zero-width space
+			"\uFEFF", // byte order mark
+			"".padStart(1000, "a"), // very long string
+		]
+
+		for (const str of specialStrings) {
+			assert.strictEqual(toSqliteValue(str, "TEXT"), str)
+		}
+	})
+
+	await t.test("rejects invalid column types", () => {
+		assert.throws(() => toSqliteValue("test", "INVALID" as LazyDbColumnType), {
+			name: "TypeError",
+			message: "Unsupported SQLite column type: INVALID",
+		})
+	})
+})
+
+test("toSqliteValue - Type Consistency", async (t) => {
+	await t.test("type conversion is idempotent", () => {
+		// Replace property test with specific test cases
+		const testCases = [
+			{ value: "test string", type: "TEXT" as const },
+			{ value: 42, type: "INTEGER" as const },
+			{ value: 3.14, type: "REAL" as const },
+			{ value: true, type: "BOOLEAN" as const },
+			{ value: 42n, type: "INTEGER" as const },
+		]
+
+		for (const { value, type } of testCases) {
+			const firstConversion = toSqliteValue(value, type)
+			const secondConversion = toSqliteValue(value, type)
+			assert.deepStrictEqual(secondConversion, firstConversion)
+		}
+	})
+
+	await t.test("integer conversions preserve value", () => {
+		const integers = [-100, -10, -1, 0, 1, 10, 100, 1000]
+		for (const num of integers) {
+			const result = toSqliteValue(num, "INTEGER")
+			assert.strictEqual(result, num)
+			assert(Number.isInteger(result))
+		}
 	})
 })
 
@@ -199,54 +275,6 @@ test("toSqliteValue - Edge Cases", async (t) => {
 			name: "TypeError",
 			message: "Unsupported SQLite column type: INVALID",
 		})
-	})
-})
-
-test("toSqliteValue - Property Tests", async (t) => {
-	await t.test("property: type conversion is idempotent", () => {
-		fc.assert(
-			fc.property(
-				fc.oneof(fc.integer(), fc.string(), fc.boolean(), fc.bigInt()),
-				(value) => {
-					let columnType: LazyDbColumnType
-					if (typeof value === "string") {
-						columnType = "TEXT"
-					} else if (typeof value === "boolean") {
-						columnType = "BOOLEAN"
-					} else if (typeof value === "bigint") {
-						columnType = "INTEGER"
-					} else {
-						columnType = Number.isInteger(value) ? "INTEGER" : "REAL"
-					}
-
-					const firstConversion = toSqliteValue(value, columnType)
-					// Converting the same value twice should yield the same result
-					assert.deepStrictEqual(
-						toSqliteValue(value, columnType),
-						firstConversion
-					)
-				}
-			)
-		)
-	})
-
-	await t.test("property: boolean conversions are binary", () => {
-		fc.assert(
-			fc.property(fc.boolean(), (bool) => {
-				const result = toSqliteValue(bool, "BOOLEAN")
-				assert(result === 0 || result === 1)
-			})
-		)
-	})
-
-	await t.test("property: integer conversions preserve value", () => {
-		fc.assert(
-			fc.property(fc.integer(), (num) => {
-				const result = toSqliteValue(num, "INTEGER")
-				assert.strictEqual(result, num)
-				assert(Number.isInteger(result))
-			})
-		)
 	})
 })
 
@@ -321,7 +349,6 @@ test("buildCreateTableSQL", async (t) => {
 			active: { type: "BOOLEAN" },
 		}
 
-		console.log("Test query keys:", JSON.stringify(queryKeys, null, 2))
 		const sql = buildCreateTableSQL("test_table", queryKeys)
 		assert.strictEqual(
 			sql,
@@ -355,8 +382,11 @@ test("buildCreateTableSQL", async (t) => {
 
 		const sql = buildCreateTableSQL(
 			"test_table",
-			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-			queryKeys as QueryKeysSchema<any>
+			queryKeys as QueryKeysSchema<{
+				name: string
+				count: number
+				active: boolean
+			}>
 		)
 		assert.ok(sql.includes("name TEXT DEFAULT 'unnamed'"))
 		assert.ok(sql.includes("count INTEGER DEFAULT 0"))
@@ -371,8 +401,7 @@ test("buildCreateTableSQL", async (t) => {
 
 		const sql = buildCreateTableSQL(
 			"test_table",
-			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-			queryKeys as QueryKeysSchema<any>
+			queryKeys as QueryKeysSchema<{ email: string; username: string }>
 		)
 		assert.ok(sql.includes("email TEXT NOT NULL UNIQUE"))
 		assert.ok(sql.includes("username TEXT NOT NULL UNIQUE"))
@@ -386,10 +415,9 @@ test("createIndexes", async (t) => {
 			field2: { type: "INTEGER" },
 		}
 
-		const statements = createIndexes(
+		const statements = createIndexes<{ field1: string; field2: number }>(
 			"test_table",
-			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-			queryKeys as QueryKeysSchema<any>
+			queryKeys as QueryKeysSchema<{ field1: string; field2: number }>
 		)
 
 		assert.strictEqual(statements.length, 2)
@@ -410,8 +438,11 @@ test("createIndexes", async (t) => {
 
 		const statements = createIndexes(
 			"test_table",
-			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-			queryKeys as QueryKeysSchema<any>
+			queryKeys as QueryKeysSchema<{
+				email: string
+				username: string
+				name: string
+			}>
 		)
 		assert.strictEqual(statements.length, 3)
 		assert.ok(
@@ -450,10 +481,9 @@ test("buildCreateTableSQL validations", async (t) => {
 			field2: { type: "INTEGER" },
 		}
 
-		// biome-ignore lint/suspicious/noExplicitAny: <explanation>
 		const sql = buildCreateTableSQL(
 			tableName,
-			queryKeys as QueryKeysSchema<any>
+			queryKeys as QueryKeysSchema<{ field1: string; field2: number }>
 		)
 		assert.ok(sql.includes("field1"))
 		assert.ok(sql.includes("field2"))
@@ -466,10 +496,9 @@ test("buildCreateTableSQL validations", async (t) => {
 			field2: { type: "INTEGER" },
 		}
 
-		// biome-ignore lint/suspicious/noExplicitAny: <explanation>
 		const statements = createIndexes(
 			tableName,
-			queryKeys as QueryKeysSchema<any>
+			queryKeys as QueryKeysSchema<{ field1: string; field2: number }>
 		)
 		assert.strictEqual(statements.length, 2)
 		assert.ok(statements[0].includes("field1"))

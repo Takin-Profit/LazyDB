@@ -23,6 +23,7 @@ import { buildInsertManyQuery, buildInsertQuery } from "./sql.js"
 import { buildUpdateQuery } from "./update.js"
 import { buildDeleteManyQuery, buildDeleteQuery } from "./delete.js"
 import { isValidationErrs } from "./validate.js"
+import { buildWhereClause } from "./where.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -396,99 +397,83 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 		updates: Partial<T>
 	): Entity<T> | null {
 		try {
-			this.#logger?.(
-				`Updating entities in ${this.#name} with options: ${JSON.stringify(options)}`
-			)
-
-			// Start a transaction
-			this.#db.exec("BEGIN TRANSACTION")
+			this.#db.exec("BEGIN IMMEDIATE TRANSACTION")
 
 			try {
-				// First find the existing entity
-				const existing = this.findOne(options)
+				// First get the existing serialized data directly
+				const findSql = `SELECT _id, __lazy_data${this.#timestamps ? ", createdAt, updatedAt" : ""}
+                          FROM ${this.#name}
+                          WHERE ${buildWhereClause(options.where, this.#queryKeys).sql}
+                          LIMIT 1`
+
+				const findStmt = this.#prepareStatement(findSql)
+				const existing = findStmt.get(
+					...buildWhereClause(options.where, this.#queryKeys).params
+				) as
+					| {
+							_id: number
+							__lazy_data: Uint8Array
+							createdAt?: string
+							updatedAt?: string
+					  }
+					| undefined
+
 				if (!existing) {
-					this.#logger?.("No entities matched update criteria")
 					this.#db.exec("ROLLBACK")
 					return null
 				}
 
-				// Merge updates with existing entity
-				const merged = {
-					...existing,
+				// Deserialize existing data and merge with updates
+				const existingData = this.#serializer.decode(existing.__lazy_data) as T
+				const mergedData = {
+					...existingData,
 					...updates,
 				}
 
-				// Destructure out the fields we don't want, collecting the rest
-				const { _id, createdAt, updatedAt, ...mergedWithoutSystemFields } =
-					merged
-
-				// Build the update query
+				// Build and execute update query
 				const { sql, params } = buildUpdateQuery(
 					this.#name,
-					mergedWithoutSystemFields as T,
+					mergedData,
 					options,
 					this.#queryKeys,
 					this.#timestamps
 				)
 
-				// Prepare statement
-				const stmt = this.#prepareStatement(sql)
+				const updateStmt = this.#prepareStatement(sql)
+				const serializedData = this.#serializer.encode(mergedData)
+				updateStmt.run(...params, serializedData)
 
-				// Create serialized data for the update
-				const serializedData = this.#serializer.encode(merged)
-
-				// Execute the update with params and serialized data
-				const result = stmt.get(...params, serializedData) as {
+				// Get the updated record
+				const result = findStmt.get(
+					...buildWhereClause(options.where, this.#queryKeys).params
+				) as {
 					_id: number
 					__lazy_data: Uint8Array
 					createdAt?: string
 					updatedAt?: string
 				}
 
-				// Commit transaction
+				// Deserialize and return the result
+				const deserializedData = this.#serializer.decode(
+					result.__lazy_data
+				) as T
+
 				this.#db.exec("COMMIT")
 
-				// Deserialize and return the updated entity
-				try {
-					const deserializedData = this.#serializer.decode(
-						result.__lazy_data
-					) as T
-					return {
-						...deserializedData,
-						_id: result._id,
-						createdAt: result?.createdAt,
-						updatedAt: result?.updatedAt,
-					} as Entity<T>
-				} catch (error) {
-					this.#logger?.(
-						`Failed to deserialize updated data: ${error instanceof Error ? error.message : String(error)}`
-					)
-					throw new NodeSqliteError(
-						"ERR_SQLITE_DESERIALIZE",
-						SqlitePrimaryResultCode.SQLITE_MISMATCH,
-						"deserialization failed",
-						"Failed to deserialize updated entity data",
-						error instanceof Error ? error : undefined
-					)
-				}
+				return {
+					...deserializedData,
+					_id: result._id,
+					createdAt: result?.createdAt,
+					updatedAt: result?.updatedAt,
+				} as Entity<T>
 			} catch (error) {
-				// Rollback on any error
-				this.#logger?.("Rolling back transaction due to error")
 				this.#db.exec("ROLLBACK")
 				throw error
 			}
 		} catch (error) {
-			// Handle SQLite-specific errors
 			if (isNodeSqliteError(error)) {
 				throw error
 			}
-
-			// Handle unexpected errors
-			this.#logger?.(
-				`Unexpected error during update: ${
-					error instanceof Error ? error.message : String(error)
-				}`
-			)
 			throw new NodeSqliteError(
 				"ERR_SQLITE_UPDATE",
 				SqlitePrimaryResultCode.SQLITE_ERROR,
@@ -514,7 +499,7 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 		updates: Partial<T>
 	): number {
 		this.#logger?.(
-			`Updating multiple entities in ${this.#name} with options: ${JSON.stringify(options)}`
+			`Updating multiple entities in ${this.#name} with options: ${stringify(options)}`
 		)
 
 		try {
@@ -543,7 +528,7 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 
 					if (existing._id === undefined) {
 						this.#logger?.(
-							`Entity missing _id field, skipping update: ${JSON.stringify(existing)}`
+							`Entity missing _id field, skipping update: ${stringify(existing)}`
 						)
 						throw new NodeSqliteError(
 							"ERR_SQLITE_UPDATE_MANY",
@@ -671,39 +656,17 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 	 * @throws {NodeSqliteError} If the deletion fails
 	 */
 	delete(options: Pick<FindOptions<T, QK>, "where">): boolean {
-		this.#logger?.(
-			`Deleting entity from ${this.#name} with options: ${JSON.stringify(options)}`
-		)
-
 		try {
-			this.#db.exec("BEGIN TRANSACTION")
+			const { sql, params } = buildDeleteQuery(
+				this.#name,
+				options,
+				this.#queryKeys
+			)
 
-			try {
-				// Find the entity first to ensure it exists
-				const existing = this.findOne(options)
-				if (!existing) {
-					this.#logger?.("No entities matched deletion criteria")
-					this.#db.exec("ROLLBACK")
-					return false
-				}
+			const stmt = this.#prepareStatement(sql)
+			const result = stmt.run(...params)
 
-				const { sql, params } = buildDeleteQuery(
-					this.#name,
-					options,
-					this.#queryKeys
-				)
-
-				const stmt = this.#prepareStatement(sql)
-				const result = stmt.run(...params)
-
-				this.#db.exec("COMMIT")
-
-				return result.changes > 0
-			} catch (error) {
-				this.#logger?.("Rolling back transaction due to error")
-				this.#db.exec("ROLLBACK")
-				throw error
-			}
+			return result.changes > 0
 		} catch (error) {
 			if (isNodeSqliteError(error)) {
 				throw error
@@ -723,7 +686,6 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 			)
 		}
 	}
-
 	/**
 	 * Deletes multiple entities that match the where clause.
 	 *
@@ -733,7 +695,7 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 	 */
 	deleteMany(options: Pick<FindOptions<T, QK>, "where">): number {
 		this.#logger?.(
-			`Deleting multiple entities from ${this.#name} with options: ${JSON.stringify(options)}`
+			`Deleting multiple entities from ${this.#name} with options: ${stringify(options)}`
 		)
 
 		try {

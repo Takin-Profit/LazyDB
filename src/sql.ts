@@ -53,7 +53,7 @@ export function buildCreateTableSQL<T extends EntityType>(
 		for (const [field, def] of Object.entries(queryKeys)) {
 			const constraints: string[] = []
 
-			if (isQueryKeyDef(def)) {
+			if (isQueryKeyDef(def) && !field.includes(".")) {
 				if (!def?.nullable) {
 					constraints.push("NOT NULL")
 				}

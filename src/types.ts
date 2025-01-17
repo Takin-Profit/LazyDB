@@ -44,19 +44,14 @@ export type QueryKeyDef<T = unknown> = {
 } & QueryKeyOptions<T>
 
 export function isQueryKeyDef(data: unknown): data is QueryKeyDef {
-	console.log("isQueryKeyDef input:", JSON.stringify(data, null, 2))
 	if (typeof data !== "object" || data === null) {
-		console.log("Failed: not an object")
 		return false
 	}
 	const def = data as QueryKeyDef
-	console.log("type:", def.type)
-	console.log("LazyDbColumnTypes:", LazyDbColumnTypes)
-	const result =
+	return (
 		typeof def.type === "string" &&
 		LazyDbColumnTypes.includes(def.type as LazyDbColumnType)
-	console.log("isQueryKeyDef result:", result)
-	return result
+	)
 }
 
 export type DotPaths<T, Prev extends string = ""> = T extends object
@@ -96,7 +91,6 @@ export type QueryKeys<T> = QueryKeysSchema<T> & SystemQueryKeys
 
 export function validateQueryKeys(data: unknown): ValidationError[] {
 	const errors: ValidationError[] = []
-	console.log("validateQueryKeys input:", JSON.stringify(data, null, 2))
 
 	if (typeof data !== "object" || data === null) {
 		return [validationErr({ msg: "Query keys must be an object" })]
@@ -105,8 +99,6 @@ export function validateQueryKeys(data: unknown): ValidationError[] {
 	const queryKeys = data as Record<string, unknown>
 
 	for (const [key, value] of Object.entries(queryKeys)) {
-		console.log(`Validating key "${key}"`, JSON.stringify(value, null, 2))
-
 		if (!isQueryKeyDef(value)) {
 			errors.push(
 				validationErr({
@@ -117,7 +109,6 @@ export function validateQueryKeys(data: unknown): ValidationError[] {
 		}
 	}
 
-	console.log("validateQueryKeys errors:", errors)
 	return errors
 }
 export type Entity<T extends EntityType> = {
@@ -189,7 +180,10 @@ export type RepositoryOptions<
 	logger?: (msg: string) => void
 }>
 
-export function validateRepositoryOptions(options: unknown): ValidationError[] {
+export function validateRepositoryOptions(
+	options: unknown,
+	validateSerializers = true
+): ValidationError[] {
 	const errors: ValidationError[] = []
 
 	if (typeof options !== "object" || options === null) {
@@ -198,14 +192,15 @@ export function validateRepositoryOptions(options: unknown): ValidationError[] {
 
 	const opts = options as Partial<RepositoryOptions<EntityType>>
 
-	if (!opts.serializer) {
+	if (validateSerializers && !opts.serializer) {
 		errors.push(
 			validationErr({ msg: "serializer is required", path: "serializer" })
 		)
 	} else if (
-		typeof opts.serializer !== "object" ||
-		typeof opts.serializer.encode !== "function" ||
-		typeof opts.serializer.decode !== "function"
+		validateSerializers &&
+		(typeof opts.serializer !== "object" ||
+			typeof opts.serializer.encode !== "function" ||
+			typeof opts.serializer.decode !== "function")
 	) {
 		errors.push(
 			validationErr({

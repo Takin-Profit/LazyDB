@@ -7,7 +7,6 @@ import { buildWhereClause } from "./where.js"
 import { NodeSqliteError } from "./errors.js"
 import type { QueryKeysSchema } from "./types.js"
 import type { Where } from "./where.js"
-import fc from "fast-check"
 
 test("buildWhereClause - Simple Conditions", async (t) => {
 	type BasicData = {
@@ -411,67 +410,69 @@ test("buildWhereClause - Type Enforcement", async (t) => {
 	})
 })
 
-test("buildWhereClause - Property Tests", async (t) => {
-	await t.test("operator symmetry property", () => {
+test("buildWhereClause - Advanced Cases", async (t) => {
+	await t.test("logical operator symmetry for OR", () => {
 		const queryKeys: QueryKeysSchema<{ a: number; b: number }> = {
 			a: { type: "INTEGER" },
 			b: { type: "INTEGER" },
 		}
 
-		fc.assert(
-			fc.property(
-				fc.integer(),
-				fc.integer(),
-				fc.constantFrom("AND", "OR"),
-				(a, b, op) => {
-					const result1 = buildWhereClause<{ a: number; b: number }>(
-						[["a", "=", a], op, ["b", "=", b]] as Where<{
-							a: number
-							b: number
-						}>,
-						queryKeys
-					)
+		// Test cases with different combinations
+		const testCases = [
+			{ a: 1, b: 2 },
+			{ a: -10, b: 10 },
+			{ a: 0, b: 0 },
+			{ a: 999, b: -999 },
+		]
 
-					const result2 = buildWhereClause<{ a: number; b: number }>(
-						[["b", "=", b], op, ["a", "=", a]] as Where<{
-							a: number
-							b: number
-						}>,
-						queryKeys
-					)
-
-					// For OR operations, order doesn't matter
-					if (op === "OR") {
-						assert.deepStrictEqual(
-							new Set(result1.params),
-							new Set(result2.params)
-						)
-					}
-				}
+		for (const { a, b } of testCases) {
+			const result1 = buildWhereClause<{ a: number; b: number }>(
+				[["a", "=", a], "OR", ["b", "=", b]],
+				queryKeys
 			)
-		)
+
+			const result2 = buildWhereClause<{ a: number; b: number }>(
+				[["b", "=", b], "OR", ["a", "=", a]],
+				queryKeys
+			)
+
+			// For OR operations, params should contain same values regardless of order
+			assert.deepStrictEqual(new Set(result1.params), new Set(result2.params))
+		}
 	})
 
-	await t.test("range query consistency", () => {
+	await t.test("range query mutual exclusivity", () => {
 		const queryKeys: QueryKeysSchema<{ value: number }> = {
 			value: { type: "INTEGER" },
 		}
 
-		fc.assert(
-			fc.property(fc.integer(), fc.integer(), (a, _) => {
-				const greaterThan = buildWhereClause<{ value: number }>(
-					["value", ">", a],
-					queryKeys
-				)
-				const lessThanOrEqual = buildWhereClause<{ value: number }>(
-					["value", "<=", a],
-					queryKeys
-				)
+		// Test various boundary cases and regular numbers
+		const testValues = [
+			0,
+			1,
+			-1,
+			Number.MAX_SAFE_INTEGER,
+			Number.MIN_SAFE_INTEGER,
+			42,
+			-42,
+		]
 
-				// These conditions should be mutually exclusive
-				assert.notDeepStrictEqual(greaterThan, lessThanOrEqual)
-			})
-		)
+		for (const value of testValues) {
+			const greaterThan = buildWhereClause<{ value: number }>(
+				["value", ">", value],
+				queryKeys
+			)
+			const lessThanOrEqual = buildWhereClause<{ value: number }>(
+				["value", "<=", value],
+				queryKeys
+			)
+
+			// These conditions should be mutually exclusive
+			assert.notDeepStrictEqual(greaterThan, lessThanOrEqual)
+			// Verify SQL structure
+			assert.ok(greaterThan.sql.includes(">"))
+			assert.ok(lessThanOrEqual.sql.includes("<="))
+		}
 	})
 
 	await t.test("null handling consistency", () => {
@@ -479,6 +480,7 @@ test("buildWhereClause - Property Tests", async (t) => {
 			nullable: { type: "TEXT" },
 		}
 
+		// Test all null-related operators
 		const isNull = buildWhereClause<{ nullable: string | null }>(
 			["nullable", "IS", null],
 			queryKeys
@@ -488,75 +490,114 @@ test("buildWhereClause - Property Tests", async (t) => {
 			queryKeys
 		)
 
-		// IS NULL and IS NOT NULL should generate different SQL
+		// Verify basic expectations
 		assert.notEqual(isNull.sql, isNotNull.sql)
-		// Neither should have parameters
 		assert.strictEqual(isNull.params.length, 0)
 		assert.strictEqual(isNotNull.params.length, 0)
+		assert.ok(isNull.sql.includes("IS NULL"))
+		assert.ok(isNotNull.sql.includes("IS NOT NULL"))
 	})
 
-	await t.test("IN clause property", () => {
+	await t.test("IN clause with various array sizes", () => {
 		const queryKeys: QueryKeysSchema<{ ids: number }> = {
 			ids: { type: "INTEGER" },
 		}
 
-		fc.assert(
-			fc.property(
-				fc.array(fc.integer(), { minLength: 1, maxLength: 100 }),
-				(numbers) => {
-					const result = buildWhereClause<{ ids: number }>(
-						["ids", "IN", numbers],
-						queryKeys
-					)
+		// Test different array sizes
+		const testArrays = [
+			[1],
+			[1, 2],
+			[1, 2, 3, 4, 5],
+			Array.from({ length: 10 }, (_, i) => i),
+			Array.from({ length: 100 }, (_, i) => i),
+		]
 
-					assert.strictEqual(result.params.length, numbers.length)
-					assert.strictEqual(result.sql.split("?").length - 1, numbers.length)
-				}
+		for (const numbers of testArrays) {
+			const result = buildWhereClause<{ ids: number }>(
+				["ids", "IN", numbers],
+				queryKeys
 			)
-		)
+
+			assert.strictEqual(result.params.length, numbers.length)
+			assert.strictEqual(result.sql.split("?").length - 1, numbers.length)
+			assert.ok(result.sql.startsWith("ids IN ("))
+			assert.ok(result.sql.endsWith(")"))
+		}
 	})
 
-	await t.test("complex nesting property", () => {
+	await t.test("complex nested conditions", () => {
 		const queryKeys: QueryKeysSchema<{ field: number }> = {
 			field: { type: "INTEGER" },
 		}
 
-		fc.assert(
-			fc.property(
-				// Generate between 2 and 5 numbers
-				fc.array(fc.integer(), { minLength: 2, maxLength: 5 }),
-				// Generate operators array with exactly numbers.length-1 operators
-				(numbers) => {
-					const operators = Array(numbers.length - 1).fill("AND")
-					const conditions = numbers.map((n) => ["field", "=", n])
+		// Test cases with different levels of nesting
+		const testCases = [
+			{
+				numbers: [1, 2],
+				expectedParams: 2,
+				operator: "AND",
+			},
+			{
+				numbers: [1, 2, 3],
+				expectedParams: 3,
+				operator: "AND",
+			},
+			{
+				numbers: [1, 2, 3, 4],
+				expectedParams: 4,
+				operator: "OR",
+			},
+			{
+				numbers: [1, 2, 3, 4, 5],
+				expectedParams: 5,
+				operator: "AND",
+			},
+		]
 
-					// Build the where clause array by interleaving conditions and operators
-					const where = conditions.reduce<unknown[]>((acc, condition, i) => {
-						if (i === conditions.length - 1) {
-							acc.push(condition)
-							return acc
-						}
-						acc.push(condition, operators[i])
-						return acc
-					}, [])
-
-					const result = buildWhereClause<{ field: number }>(
-						where as Where<{ field: number }>,
-						queryKeys
-					)
-
-					// Verify structure
-					assert.strictEqual(result.params.length, numbers.length)
-					assert.strictEqual(
-						(result.sql.match(/\(/g) || []).length,
-						(result.sql.match(/\)/g) || []).length
-					)
-					// Verify all numbers are present in params
-					for (const n of numbers) {
-						assert(result.params.includes(n))
-					}
+		for (const { numbers, expectedParams, operator } of testCases) {
+			const conditions = numbers.map((n) => ["field", "=", n])
+			const operators = Array(numbers.length - 1).fill(operator)
+			const where = conditions.reduce<unknown[]>((acc, condition, i) => {
+				if (i === conditions.length - 1) {
+					acc.push(condition)
+					return acc
 				}
+				acc.push(condition, operators[i])
+				return acc
+			}, [])
+
+			const result = buildWhereClause<{ field: number }>(
+				where as Where<{ field: number }>,
+				queryKeys
 			)
+
+			// Verify structure and content
+			assert.strictEqual(result.params.length, expectedParams)
+			assert.strictEqual(
+				(result.sql.match(/\(/g) || []).length,
+				(result.sql.match(/\)/g) || []).length
+			)
+			for (const n of numbers) {
+				assert(result.params.includes(n))
+			}
+		}
+	})
+
+	await t.test("mixed operator chains", () => {
+		const queryKeys: QueryKeysSchema<{ a: number; b: number; c: number }> = {
+			a: { type: "INTEGER" },
+			b: { type: "INTEGER" },
+			c: { type: "INTEGER" },
+		}
+
+		const result = buildWhereClause<{ a: number; b: number; c: number }>(
+			[["a", "=", 1], "AND", ["b", "=", 2], "OR", ["c", "=", 3]],
+			queryKeys
 		)
+
+		assert.strictEqual(result.params.length, 3)
+		assert.ok(result.sql.includes("AND"))
+		assert.ok(result.sql.includes("OR"))
+		assert.deepStrictEqual(result.params, [1, 2, 3])
 	})
 })

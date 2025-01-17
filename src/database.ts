@@ -20,7 +20,6 @@ import {
 	type SystemQueryKeys,
 	validateRepositoryOptions,
 	validateDatabaseOptions,
-	isValidationErrs,
 } from "./types.js"
 import { Repository } from "./repository.js"
 import {
@@ -30,6 +29,7 @@ import {
 } from "./cache.js"
 import type stringifyLib from "fast-safe-stringify"
 import { buildCreateTableSQL, createIndexes } from "./sql.js"
+import { isValidationErrs } from "./validate.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -87,7 +87,7 @@ const createRepositoryFactory = <T extends EntityType>(
 	) {
 		props.logger?.(`Creating repository: ${props.name}`)
 
-		const result = validateRepositoryOptions(options)
+		const result = validateRepositoryOptions(options, false)
 
 		if (isValidationErrs(result)) {
 			throw new NodeSqliteError(

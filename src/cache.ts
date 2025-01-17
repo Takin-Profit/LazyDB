@@ -3,7 +3,6 @@
 // license that can be found in the LICENSE file.
 
 import type { StatementSync } from "node:sqlite"
-import { type $, num, object, optional } from "./utils.js"
 
 interface CacheItem<V> {
 	value: V
@@ -379,12 +378,10 @@ export default class QuickLRU<K, V> implements Map<K, V> {
 }
 
 // Define the cache options schema
-export const StatementCacheOptions = object({
-	maxSize: num(),
-	maxAge: optional(num()),
-})
-
-export type StatementCacheOptions = $<typeof StatementCacheOptions>
+export interface StatementCacheOptions {
+	maxSize: number
+	maxAge?: number
+}
 
 export interface StatementCache {
 	get(sql: string): StatementSync | undefined
@@ -455,8 +452,19 @@ class EnhancedStatementCache implements StatementCache {
 
 export function createStatementCache(options?: StatementCacheOptions) {
 	if (!options) {
-		// Return a no-op cache if caching is disabled
 		return undefined
+	}
+
+	if (typeof options.maxSize !== "number" || options.maxSize <= 0) {
+		// Add runtime validation since we removed schema validation
+		throw new TypeError("maxSize must be a positive number")
+	}
+
+	if (
+		options.maxAge !== undefined &&
+		(typeof options.maxAge !== "number" || options.maxAge <= 0)
+	) {
+		throw new TypeError("maxAge must be a positive number")
 	}
 
 	return new EnhancedStatementCache(options)

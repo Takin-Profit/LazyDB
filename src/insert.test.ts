@@ -210,7 +210,7 @@ describe("buildInsertManyQuery", () => {
 			_id: { type: "INTEGER" },
 			createdAt: { type: "TEXT" },
 			updatedAt: { type: "TEXT" },
-		}
+		} as QueryKeysSchema<TestEntityWithIgnored>
 
 		const entities: TestEntityWithIgnored[] = [
 			{ name: "test", _id: 1, createdAt: "now", updatedAt: "now" },
