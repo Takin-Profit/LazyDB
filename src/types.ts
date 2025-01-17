@@ -139,7 +139,7 @@ export type SystemQueryKeys = {
 }
 
 // Then create a merged type that preserves both sets of query keys
-export type QueryKeys<T> = SystemQueryKeys & QueryKeysSchema<T>
+export type QueryKeys<T> = QueryKeysSchema<T> & SystemQueryKeys
 
 export const validateQueryKeys = (data: unknown) => validate(QueryKeys, data)
 

@@ -7,7 +7,6 @@ import {
 	type Entity,
 	type EntityType,
 	type QueryKeys,
-	QueryKeysSchema,
 	RepositoryOptions,
 } from "./types.js"
 
@@ -24,15 +23,11 @@ import { buildFindQuery, type FindOptions } from "./find.js"
 import { buildInsertManyQuery, buildInsertQuery } from "./sql.js"
 import { buildUpdateQuery } from "./update.js"
 import { buildDeleteManyQuery, buildDeleteQuery } from "./delete.js"
-import LazyDb from "./database.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
 
-export class Repository<
-	T extends EntityType,
-	QK extends QueryKeys<T> = QueryKeys<T>,
-> {
+class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 	readonly #db: DatabaseSync
 	readonly #prepareStatement: (sql: string) => StatementSync
 	readonly #logger?: (msg: string) => void
@@ -546,6 +541,19 @@ export class Repository<
 						...updates,
 					}
 
+					if (existing._id === undefined) {
+						this.#logger?.(
+							`Entity missing _id field, skipping update: ${JSON.stringify(existing)}`
+						)
+						throw new NodeSqliteError(
+							"ERR_SQLITE_UPDATE_MANY",
+							SqlitePrimaryResultCode.SQLITE_ERROR,
+							"missing _id field",
+							"Entity missing _id field, skipping update",
+							undefined
+						)
+					}
+
 					// Remove system fields from merged data
 					const { _id, createdAt, updatedAt, ...mergedWithoutSystemFields } =
 						merged
@@ -770,41 +778,4 @@ export class Repository<
 	}
 }
 
-/* type User = {
-	name: string
-	email: string
-	age: number
-	address: {
-		street: string
-		city: string
-		zip: number
-	}
-}
-
-const db = new LazyDb()
-
-const keys = {
-	name: { type: "TEXT", unique: true },
-	"address.zip": { type: "INTEGER", nullable: true },
-	email: { type: "TEXT", index: { unique: true } },
-	_id: { type: "INTEGER", index: { unique: true } }, // should not be allowed
-} as const
-
-const keys2 = {
-	_id: { type: "INTEGER" },
-	name: { type: "TEXT", unique: true },
-	updatedAt: { type: "TEXT" },
-} as const
-
-const repo = db.repository<User>("users").create({
-	queryKeys: {
-		_id: { type: "INTEGER" },
-		name: { type: "TEXT", unique: true },
-		updatedAt: { type: "TEXT" },
-	},
-	timestamps: true,
-	logger: console.log,
-})
-
-const users = repo.find({ where: ["", "=", ""] }) // should have an updateAt query key
- */
+export { Repository }

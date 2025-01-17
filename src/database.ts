@@ -20,6 +20,7 @@ import {
 	SerializerOptions as SerializerOptionsSchema,
 	type QueryKeysSchema,
 	type EntityType,
+	type SystemQueryKeys,
 } from "./types.js"
 import { Repository } from "./repository.js"
 import {
@@ -35,8 +36,10 @@ const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 
 type RepositoryFactory<T extends EntityType> = {
 	create<K extends QueryKeysSchema<T>>(
-		options?: Omit<RepositoryOptions<T, K>, "serializer">
-	): Repository<T, K>
+		options?: Omit<RepositoryOptions<T, QueryKeysSchema<T>>, "serializer"> & {
+			queryKeys?: QueryKeysSchema<T> // Force literal type checking
+		}
+	): Repository<T, K & SystemQueryKeys>
 }
 
 type CreateFactoryProps = {
@@ -78,7 +81,9 @@ const createRepositoryFactory = <T extends EntityType>(
 	props: CreateFactoryProps
 ): RepositoryFactory<T> => ({
 	create<K extends QueryKeysSchema<T>>(
-		options?: Omit<RepositoryOptions<T, K>, "serializer">
+		options?: Omit<RepositoryOptions<T, QueryKeysSchema<T>>, "serializer"> & {
+			queryKeys?: QueryKeysSchema<T> // Force literal type checking
+		}
 	) {
 		props.logger?.(`Creating repository: ${props.name}`)
 
@@ -105,6 +110,48 @@ const createRepositoryFactory = <T extends EntityType>(
 			)
 		}
 
+		let extendedQueryKeys: QueryKeysSchema<T>
+
+		if (options?.queryKeys) {
+			const systemFields: string[] = [
+				"_id",
+				"__lazy_data",
+				"createdAt",
+				"updatedAt",
+			]
+
+			if (props.timestampEnabled) {
+			}
+			const invalidFields = Object.keys(options.queryKeys).filter((key) =>
+				systemFields.includes(key)
+			)
+
+			if (invalidFields.length > 0) {
+				throw new NodeSqliteError(
+					"ERR_SQLITE_REPOSITORY",
+					SqlitePrimaryResultCode.SQLITE_MISUSE,
+					"Invalid query keys",
+					`System fields cannot be used as query keys: ${invalidFields.join(", ")}`,
+					undefined
+				)
+			}
+
+			const systemQueryKeys: SystemQueryKeys = {
+				_id: { type: "INTEGER" },
+				...(props.timestampEnabled
+					? {
+							createdAt: { type: "TEXT" },
+							updatedAt: { type: "TEXT" },
+						}
+					: {}),
+			}
+
+			extendedQueryKeys = {
+				...options?.queryKeys,
+				...systemQueryKeys,
+			} as K & SystemQueryKeys
+		}
+
 		// Build CREATE TABLE statement
 		const createTableSQL = buildCreateTableSQL(
 			props.name,
@@ -122,11 +169,11 @@ const createRepositoryFactory = <T extends EntityType>(
 			}
 
 			// Return new Repository instance
-			return new Repository<T, K>({
+			return new Repository<T, K & SystemQueryKeys>({
 				prepareStatement: props.prepareStatement,
 				serializer: props.serializer,
 				timestamps: props.timestampEnabled,
-				queryKeys: options?.queryKeys,
+				queryKeys: options?.queryKeys as K & SystemQueryKeys,
 				logger: options?.logger ?? props.logger,
 				name: props.name,
 				db: props.db,

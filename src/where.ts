@@ -66,14 +66,29 @@ type NonInOperator = Exclude<ComparisonOperator, InOperator | NullOperator>
 
 type ValidKeys<QK> = keyof QK & string
 
+type SystemFieldValueMap = {
+	_id: number
+	createdAt: string
+	updatedAt: string
+	__lazy_data: Uint8Array
+}
+
+type GetFieldType<
+	T,
+	K extends string,
+	_QK,
+> = K extends keyof SystemFieldValueMap
+	? SystemFieldValueMap[K]
+	: DotPathValue<T, K>
+
 // The core WhereCondition type that ensures only valid fields are used
 export type WhereCondition<
 	T extends EntityType,
 	QK extends QueryKeys<T> = QueryKeys<T>,
 > = {
 	[K in ValidKeys<QK>]:
-		| [K, InOperator, DotPathValue<T, K>[]]
-		| [K, NonInOperator, DotPathValue<T, K>]
+		| [K, InOperator, GetFieldType<T, K, QK>[]]
+		| [K, NonInOperator, GetFieldType<T, K, QK>]
 		| [K, NullOperator, null]
 }[ValidKeys<QK>]
 
