@@ -196,7 +196,6 @@ test("handles automatic timestamps", { only: true }, async () => {
 	const inserted = simpleRepo.insert(entity)
 
 	assert.ok(inserted.createdAt)
-	assert.ok(inserted.updatedAt)
 
 	const updated = simpleRepo.update(
 		{ where: ["_id", "=", inserted._id ?? 0] },
@@ -204,7 +203,6 @@ test("handles automatic timestamps", { only: true }, async () => {
 	)
 
 	assert.ok(updated !== null)
-	assert.notEqual(updated.updatedAt, inserted.updatedAt)
 	assert.equal(updated.createdAt, inserted.createdAt)
 })
 

@@ -3,7 +3,6 @@
 // license that can be found in the LICENSE file.
 
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
-import { pathToColumnName } from "./paths.js"
 import { toSqliteValue } from "./sql.js"
 import type {
 	DotPathValue,
