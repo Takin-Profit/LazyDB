@@ -62,6 +62,7 @@ beforeEach(() => {
 		location: ":memory:",
 		timestamps: true,
 		serializer: "json",
+		logger: console.log,
 	})
 
 	simpleRepo = db.repository<SimpleEntity>("test").create({

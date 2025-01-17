@@ -85,7 +85,9 @@ const createRepositoryFactory = <T extends EntityType>(
 			queryKeys?: QueryKeysSchema<T> // Force literal type checking
 		}
 	) {
-		props.logger?.(`Creating repository: ${props.name}`)
+		props.logger?.(
+			`Creating repository: ${props.name}, timestamps enabled: ${props.timestampEnabled}`
+		)
 
 		const result = validateRepositoryOptions(options, false)
 
@@ -110,7 +112,7 @@ const createRepositoryFactory = <T extends EntityType>(
 			)
 		}
 
-		let extendedQueryKeys: QueryKeysSchema<T>
+		let extendedQueryKeys: QueryKeysSchema<T> = options?.queryKeys ?? {}
 
 		if (options?.queryKeys) {
 			const systemFields: string[] = [
@@ -155,7 +157,7 @@ const createRepositoryFactory = <T extends EntityType>(
 		// Build CREATE TABLE statement
 		const createTableSQL = buildCreateTableSQL(
 			props.name,
-			options?.queryKeys,
+			extendedQueryKeys,
 			options?.timestamps ?? props.timestampEnabled
 		)
 
@@ -165,7 +167,7 @@ const createRepositoryFactory = <T extends EntityType>(
 
 			// Create indexes for queryable columns
 			if (options?.queryKeys) {
-				_createIndexes(props.name, props.db, options.queryKeys, props.logger)
+				_createIndexes(props.name, props.db, extendedQueryKeys, props.logger)
 			}
 
 			// Return new Repository instance
@@ -173,7 +175,7 @@ const createRepositoryFactory = <T extends EntityType>(
 				prepareStatement: props.prepareStatement,
 				serializer: props.serializer,
 				timestamps: props.timestampEnabled,
-				queryKeys: options?.queryKeys as K & SystemQueryKeys,
+				queryKeys: extendedQueryKeys as K & SystemQueryKeys,
 				logger: options?.logger ?? props.logger,
 				name: props.name,
 				db: props.db,
@@ -222,7 +224,7 @@ class LazyDb {
 
 			// Initialize database with proper error handling
 			this.#db = new DatabaseSync(options.location, { open: true })
-			this.#timestampEnabled = options.timestamps ?? false
+			this.#timestampEnabled = options.timestamps ?? true
 			this.#logger?.("Database opened successfully")
 
 			// Setup serializer
@@ -282,7 +284,7 @@ class LazyDb {
 			name,
 			prepareStatement: this.#prepareStatement.bind(this),
 			serializer: this.#serializer,
-			timestampEnabled: this.#timestampEnabled,
+			timestampEnabled: this.#timestampEnabled ?? true,
 		})
 	}
 

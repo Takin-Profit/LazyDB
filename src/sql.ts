@@ -26,16 +26,13 @@ export function buildCreateTableSQL<T extends EntityType>(
 	queryKeys?: QueryKeysSchema<T>,
 	timestamps = false
 ): string {
-	// biome-ignore lint/style/noUnusedTemplateLiteral: <explanation>
-	const columns = [`_id INTEGER PRIMARY KEY AUTOINCREMENT`]
+	const columns = ["_id INTEGER PRIMARY KEY AUTOINCREMENT"]
 
 	if (queryKeys) {
 		// Validate query keys schema
 		const validationResult = validateQueryKeys(queryKeys)
 
 		if (isValidationErrs(validationResult)) {
-			// Debug log
-
 			const errorMessages = validationResult
 				.map((e) => `${e.path ? `${e.path}: ` : ""}${e.message}`)
 				.join(", ")
@@ -49,44 +46,43 @@ export function buildCreateTableSQL<T extends EntityType>(
 			)
 		}
 
+		const ignorableFields = ["_id", "createdAt", "__lazy_data", "updatedAt"]
+
 		// Add columns for regular queryable fields
 		for (const [field, def] of Object.entries(queryKeys)) {
-			const constraints: string[] = []
-
+			if (ignorableFields.includes(field)) {
+				continue
+			}
 			if (isQueryKeyDef(def) && !field.includes(".")) {
+				const constraints: string[] = []
+
 				if (!def?.nullable) {
 					constraints.push("NOT NULL")
 				}
 				if (def?.default !== undefined) {
 					constraints.push(
-						`DEFAULT ${
-							typeof def.default === "string" ? `'${def.default}'` : def.default
-						}`
+						`DEFAULT ${typeof def.default === "string" ? `'${def.default}'` : def.default}`
 					)
 				}
-
-				// If index.unique is true, add UNIQUE constraint
 				if (def?.unique) {
 					constraints.push("UNIQUE")
 				}
 				columns.push(
-					`${field} ${def.type}${constraints?.length ? ` ${constraints.join(" ")}` : ""}`
+					`${field} ${def.type}${constraints.length ? ` ${constraints.join(" ")}` : ""}`
 				)
 			}
-
-			// Add columns for nested fields
-			const nestedColumns = createNestedColumnDefinitions(queryKeys)
-			columns.push(...nestedColumns)
 		}
+
+		// Add nested columns outside the main loop
+		const nestedColumns = createNestedColumnDefinitions(queryKeys)
+		columns.push(...nestedColumns)
 	}
 
 	if (timestamps) {
-		// Add createdAt and updatedAt columns
 		columns.push("createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP")
 		columns.push("updatedAt TEXT")
 	}
 
-	// Add data BLOB column for non-queryable fields
 	columns.push("__lazy_data BLOB")
 
 	return `CREATE TABLE IF NOT EXISTS ${name} (${columns.join(", ")})`
@@ -98,7 +94,7 @@ export function createIndexes<T extends EntityType>(
 ): string[] {
 	const regularIndexes = Object.entries(queryKeys)
 		.map(([field, def]) => {
-			if (!field.includes(".") && isQueryKeyDef(def)) {
+			if (!field.includes(".") && field !== "_id" && isQueryKeyDef(def)) {
 				const indexName = `idx_${name}_${field}`
 				const indexType = def?.unique ? " UNIQUE" : ""
 				return `CREATE${indexType} INDEX IF NOT EXISTS ${indexName} ON ${name}(${field})`

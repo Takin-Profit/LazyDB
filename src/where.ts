@@ -3,6 +3,7 @@
 // license that can be found in the LICENSE file.
 
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
+import { pathToColumnName } from "./paths.js"
 import { toSqliteValue } from "./sql.js"
 import type {
 	DotPathValue,
@@ -250,6 +251,8 @@ function handleSingleCondition<
 		)
 	}
 
+	const actualColumnName = pathToColumnName(field)
+
 	const columnType = queryKeys[field].type
 
 	if (operator === "IN" || operator === "NOT IN") {
@@ -278,7 +281,7 @@ function handleSingleCondition<
 		)
 		const placeholders = convertedParams.map(() => "?").join(", ")
 		return {
-			sql: `${String(field)} ${operator} (${placeholders})`,
+			sql: `${actualColumnName} ${operator} (${placeholders})`,
 			params: convertedParams,
 			fields: [String(field)],
 		}
@@ -295,7 +298,7 @@ function handleSingleCondition<
 			)
 		}
 		return {
-			sql: `${String(field)} ${operator} NULL`,
+			sql: `${actualColumnName} ${operator} NULL`,
 			params: [],
 			fields: [String(field)],
 		}
@@ -303,7 +306,7 @@ function handleSingleCondition<
 
 	const convertedValue = toSqliteValue(value as LazyDbValue, columnType)
 	return {
-		sql: `${String(field)} ${operator} ?`,
+		sql: `${actualColumnName} ${operator} ?`,
 		params: [convertedValue],
 		fields: [String(field)],
 	}
