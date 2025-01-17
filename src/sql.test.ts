@@ -321,6 +321,7 @@ test("buildCreateTableSQL", async (t) => {
 			active: { type: "BOOLEAN" },
 		}
 
+		console.log("Test query keys:", JSON.stringify(queryKeys, null, 2))
 		const sql = buildCreateTableSQL("test_table", queryKeys)
 		assert.strictEqual(
 			sql,

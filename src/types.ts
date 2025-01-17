@@ -44,14 +44,19 @@ export type QueryKeyDef<T = unknown> = {
 } & QueryKeyOptions<T>
 
 export function isQueryKeyDef(data: unknown): data is QueryKeyDef {
+	console.log("isQueryKeyDef input:", JSON.stringify(data, null, 2))
 	if (typeof data !== "object" || data === null) {
+		console.log("Failed: not an object")
 		return false
 	}
 	const def = data as QueryKeyDef
-	return (
+	console.log("type:", def.type)
+	console.log("LazyDbColumnTypes:", LazyDbColumnTypes)
+	const result =
 		typeof def.type === "string" &&
 		LazyDbColumnTypes.includes(def.type as LazyDbColumnType)
-	)
+	console.log("isQueryKeyDef result:", result)
+	return result
 }
 
 export type DotPaths<T, Prev extends string = ""> = T extends object
@@ -91,6 +96,7 @@ export type QueryKeys<T> = QueryKeysSchema<T> & SystemQueryKeys
 
 export function validateQueryKeys(data: unknown): ValidationError[] {
 	const errors: ValidationError[] = []
+	console.log("validateQueryKeys input:", JSON.stringify(data, null, 2))
 
 	if (typeof data !== "object" || data === null) {
 		return [validationErr({ msg: "Query keys must be an object" })]
@@ -99,15 +105,7 @@ export function validateQueryKeys(data: unknown): ValidationError[] {
 	const queryKeys = data as Record<string, unknown>
 
 	for (const [key, value] of Object.entries(queryKeys)) {
-		if (SystemFieldTypes.includes(key as SystemFields)) {
-			errors.push(
-				validationErr({
-					msg: `System field "${key}" cannot be used as a query key`,
-					path: key,
-				})
-			)
-			continue
-		}
+		console.log(`Validating key "${key}"`, JSON.stringify(value, null, 2))
 
 		if (!isQueryKeyDef(value)) {
 			errors.push(
@@ -119,9 +117,9 @@ export function validateQueryKeys(data: unknown): ValidationError[] {
 		}
 	}
 
+	console.log("validateQueryKeys errors:", errors)
 	return errors
 }
-
 export type Entity<T extends EntityType> = {
 	_id?: number
 	createdAt?: string

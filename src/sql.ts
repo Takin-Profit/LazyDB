@@ -31,13 +31,20 @@ export function buildCreateTableSQL<T extends EntityType>(
 
 	if (queryKeys) {
 		// Validate query keys schema
-		const validationResult = validateQueryKeys({ queryKeys })
+		const validationResult = validateQueryKeys(queryKeys)
+
 		if (isValidationErrs(validationResult)) {
+			// Debug log
+
+			const errorMessages = validationResult
+				.map((e) => `${e.path ? `${e.path}: ` : ""}${e.message}`)
+				.join(", ")
+
 			throw new NodeSqliteError(
 				"ERR_SQLITE_SCHEMA",
 				SqlitePrimaryResultCode.SQLITE_SCHEMA,
 				"Invalid query keys schema",
-				`Schema validation failed: ${validationResult.map((e) => e.message).join(", ")}`,
+				`Schema validation failed: ${errorMessages}`,
 				undefined
 			)
 		}
