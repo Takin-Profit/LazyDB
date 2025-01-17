@@ -20,7 +20,7 @@ import type stringifyLib from "fast-safe-stringify"
 import { createRequire } from "node:module"
 import { buildFindQuery, type FindOptions } from "./find.js"
 import { buildInsertManyQuery, buildInsertQuery } from "./sql.js"
-import { buildUpdateQuery } from "./update.js"
+import { buildUpdateManyQuery, buildUpdateQuery } from "./update.js"
 import { buildDeleteManyQuery, buildDeleteQuery } from "./delete.js"
 import { isValidationErrs } from "./validate.js"
 import { buildWhereClause } from "./where.js"
@@ -516,63 +516,48 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 					return 0
 				}
 
+				// Build the update query once
+				const { sql, values } = buildUpdateManyQuery(
+					this.#name,
+					updates,
+					existingEntities,
+					this.#queryKeys,
+					this.#timestamps
+				)
+
+				this.#logger?.(`Generated update query: ${sql}`)
+
+				// Prepare statement once
+				const stmt = this.#prepareStatement(sql)
 				let updateCount = 0
 
-				// Update each entity individually
-				for (const existing of existingEntities) {
+				// Execute update for each entity
+				for (let i = 0; i < existingEntities.length; i++) {
+					const existing = existingEntities[i]
 					// Merge updates with existing entity
 					const merged = {
 						...existing,
 						...updates,
 					}
 
-					if (existing._id === undefined) {
-						this.#logger?.(
-							`Entity missing _id field, skipping update: ${stringify(existing)}`
-						)
-						throw new NodeSqliteError(
-							"ERR_SQLITE_UPDATE_MANY",
-							SqlitePrimaryResultCode.SQLITE_ERROR,
-							"missing _id field",
-							"Entity missing _id field, skipping update",
-							undefined
-						)
-					}
-
-					// Remove system fields from merged data
-					const { _id, createdAt, updatedAt, ...mergedWithoutSystemFields } =
-						merged
-
-					// Build update query for this specific entity
-					const { sql, params } = buildUpdateQuery<{ _id?: number }>(
-						this.#name,
-						mergedWithoutSystemFields as T,
-						{ where: ["_id", "=", existing._id] },
-						this.#queryKeys,
-						this.#timestamps
-					)
-
-					this.#logger?.(
-						`Executing update query: ${sql} with params: ${stringify(params)}`
-					)
-
-					// Prepare statement
-					const stmt = this.#prepareStatement(sql)
-
 					// Serialize the merged data
 					const serializedData = this.#serializer.encode(merged)
 
-					// Then just before stmt.run(...params, serializedData):
-					this.#logger?.(
-						`Final arguments to run:
-						${stringify([...params, serializedData])}`
+					// Replace the placeholder in values[i] with actual serialized data
+					const entityValues = [...values[i]]
+					const lazyDataIndex = entityValues.findIndex(
+						(v) => v instanceof Uint8Array
 					)
+					if (lazyDataIndex !== -1) {
+						entityValues[lazyDataIndex] = serializedData
+					}
 
-					// Execute the update with serialized data
-					const result = stmt.run(...params, serializedData)
+					this.#logger?.(
+						`Executing update for entity ${i + 1}/${existingEntities.length}`
+					)
+					this.#logger?.(`Values: ${stringify(entityValues)}`)
 
-					this.#logger?.(`Update returned changes: ${result.changes}`)
-
+					const result = stmt.run(...entityValues)
 					updateCount += Number(result.changes)
 				}
 

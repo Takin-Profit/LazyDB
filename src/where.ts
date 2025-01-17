@@ -251,9 +251,8 @@ function handleSingleCondition<
 		)
 	}
 
-	const actualColumnName = pathToColumnName(field)
-
 	const columnType = queryKeys[field].type
+	const columnName = field.replace(/\./g, "_")
 
 	if (operator === "IN" || operator === "NOT IN") {
 		if (!Array.isArray(value)) {
@@ -281,9 +280,9 @@ function handleSingleCondition<
 		)
 		const placeholders = convertedParams.map(() => "?").join(", ")
 		return {
-			sql: `${actualColumnName} ${operator} (${placeholders})`,
+			sql: `${columnName} ${operator} (${placeholders})`,
 			params: convertedParams,
-			fields: [String(field)],
+			fields: [columnName],
 		}
 	}
 
@@ -298,17 +297,17 @@ function handleSingleCondition<
 			)
 		}
 		return {
-			sql: `${actualColumnName} ${operator} NULL`,
+			sql: `${columnName} ${operator} NULL`,
 			params: [],
-			fields: [String(field)],
+			fields: [columnName],
 		}
 	}
 
 	const convertedValue = toSqliteValue(value as LazyDbValue, columnType)
 	return {
-		sql: `${actualColumnName} ${operator} ?`,
+		sql: `${columnName} ${operator} ?`,
 		params: [convertedValue],
-		fields: [String(field)],
+		fields: [columnName],
 	}
 }
 
