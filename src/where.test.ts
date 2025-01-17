@@ -5,7 +5,7 @@ import test from "node:test"
 import assert from "node:assert"
 import { buildWhereClause } from "./where.js"
 import { NodeSqliteError } from "./errors.js"
-import type { QueryKeys } from "./types.js"
+import type { QueryKeysSchema } from "./types.js"
 import type { Where } from "./where.js"
 import fc from "fast-check"
 
@@ -18,7 +18,7 @@ test("buildWhereClause - Simple Conditions", async (t) => {
 		email: string
 	}
 
-	const queryKeys: QueryKeys<BasicData> = {
+	const queryKeys: QueryKeysSchema<BasicData> = {
 		name: { type: "TEXT" },
 		age: { type: "INTEGER" },
 		active: { type: "BOOLEAN" },
@@ -84,7 +84,7 @@ test("buildWhereClause - IN Conditions", async (t) => {
 		id: number
 	}
 
-	const queryKeys: QueryKeys<StatusData> = {
+	const queryKeys: QueryKeysSchema<StatusData> = {
 		status: { type: "TEXT" },
 		id: { type: "INTEGER" },
 	}
@@ -133,7 +133,7 @@ test("buildWhereClause - Complex Conditions", async (t) => {
 		role: string
 	}
 
-	const queryKeys: QueryKeys<ComplexData> = {
+	const queryKeys: QueryKeysSchema<ComplexData> = {
 		age: { type: "INTEGER" },
 		active: { type: "BOOLEAN" },
 		status: { type: "TEXT" },
@@ -223,7 +223,7 @@ test("buildWhereClause - Error Cases", async (t) => {
 		score: number
 	}
 
-	const queryKeys: QueryKeys<ErrorData> = {
+	const queryKeys: QueryKeysSchema<ErrorData> = {
 		age: { type: "INTEGER" },
 		status: { type: "TEXT" },
 		score: { type: "REAL" },
@@ -286,7 +286,7 @@ test("buildWhereClause - Edge Cases", async (t) => {
 		name: string
 	}
 
-	const queryKeys: QueryKeys<EdgeData> = {
+	const queryKeys: QueryKeysSchema<EdgeData> = {
 		id: { type: "INTEGER" },
 		field: { type: "TEXT" },
 		a: { type: "INTEGER" },
@@ -324,7 +324,7 @@ test("buildWhereClause - Edge Cases", async (t) => {
 	})
 
 	await t.test("special characters in field names", () => {
-		const specialQueryKeys: QueryKeys<{ name: string }> = {
+		const specialQueryKeys: QueryKeysSchema<{ name: string }> = {
 			name: { type: "TEXT" },
 		}
 		const result = buildWhereClause<EdgeData>(
@@ -344,7 +344,7 @@ test("buildWhereClause - Type Enforcement", async (t) => {
 		realField: number
 		textField: string
 	}
-	const queryKeys: QueryKeys<Data> = {
+	const queryKeys: QueryKeysSchema<Data> = {
 		intField: { type: "INTEGER" },
 		boolField: { type: "BOOLEAN" },
 		realField: { type: "REAL" },
@@ -417,7 +417,7 @@ test("buildWhereClause - Type Enforcement", async (t) => {
 
 test("buildWhereClause - Property Tests", async (t) => {
 	await t.test("operator symmetry property", () => {
-		const queryKeys: QueryKeys<{ a: number; b: number }> = {
+		const queryKeys: QueryKeysSchema<{ a: number; b: number }> = {
 			a: { type: "INTEGER" },
 			b: { type: "INTEGER" },
 		}
@@ -457,7 +457,7 @@ test("buildWhereClause - Property Tests", async (t) => {
 	})
 
 	await t.test("range query consistency", () => {
-		const queryKeys: QueryKeys<{ value: number }> = {
+		const queryKeys: QueryKeysSchema<{ value: number }> = {
 			value: { type: "INTEGER" },
 		}
 
@@ -479,7 +479,7 @@ test("buildWhereClause - Property Tests", async (t) => {
 	})
 
 	await t.test("null handling consistency", () => {
-		const queryKeys: QueryKeys<{ nullable: string | null }> = {
+		const queryKeys: QueryKeysSchema<{ nullable: string | null }> = {
 			nullable: { type: "TEXT" },
 		}
 
@@ -500,7 +500,7 @@ test("buildWhereClause - Property Tests", async (t) => {
 	})
 
 	await t.test("IN clause property", () => {
-		const queryKeys: QueryKeys<{ ids: number }> = {
+		const queryKeys: QueryKeysSchema<{ ids: number }> = {
 			ids: { type: "INTEGER" },
 		}
 
@@ -521,7 +521,7 @@ test("buildWhereClause - Property Tests", async (t) => {
 	})
 
 	await t.test("complex nesting property", () => {
-		const queryKeys: QueryKeys<{ field: number }> = {
+		const queryKeys: QueryKeysSchema<{ field: number }> = {
 			field: { type: "INTEGER" },
 		}
 

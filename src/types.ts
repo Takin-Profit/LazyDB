@@ -25,7 +25,6 @@ import {
 	unknown,
 	validate,
 } from "./utils.js"
-import type { StatementSync } from "node:sqlite"
 
 // Define the SQLite column types
 const LazyDbColumnType = union([
@@ -34,6 +33,15 @@ const LazyDbColumnType = union([
 	literal("REAL"),
 	literal("BOOLEAN"),
 ])
+
+const SystemFields = union([
+	literal("_id"),
+	literal("__lazy_data"),
+	literal("createdAt"),
+	literal("updatedAt"),
+])
+
+export type SystemFields = $<typeof SystemFields>
 
 export type LazyDbColumnType = $<typeof LazyDbColumnType>
 
@@ -118,9 +126,20 @@ export type DotPathValue<T, Path extends string> = Path extends `${
 		? T[Path]
 		: never
 
-export type QueryKeys<T> = {
-	[P in DotPaths<T>]?: QueryKeyDef<DotPathValue<T, P>>
+// Then modify the existing QueryKeys type to exclude system fields
+export type QueryKeysSchema<T> = {
+	[P in Exclude<DotPaths<T>, SystemFields>]?: QueryKeyDef<DotPathValue<T, P>>
 }
+
+// First let's type the system query keys
+export type SystemQueryKeys = {
+	_id?: QueryKeyDef<number>
+	createdAt?: QueryKeyDef<string>
+	updatedAt?: QueryKeyDef<string>
+}
+
+// Then create a merged type that preserves both sets of query keys
+export type QueryKeys<T> = SystemQueryKeys & QueryKeysSchema<T>
 
 export const validateQueryKeys = (data: unknown) => validate(QueryKeys, data)
 
@@ -167,7 +186,7 @@ export const RepositoryOptions = object({
 
 export type RepositoryOptions<
 	T extends EntityType,
-	QK extends QueryKeys<T> = QueryKeys<T>,
+	QK extends QueryKeysSchema<T> = QueryKeysSchema<T>,
 > = Readonly<{
 	queryKeys?: QK
 	timestamps?: boolean

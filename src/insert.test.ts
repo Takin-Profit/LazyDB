@@ -5,7 +5,7 @@
 import { describe, it } from "node:test"
 import { buildInsertManyQuery } from "./sql.js"
 import assert from "node:assert"
-import type { QueryKeys } from "./types.js"
+import type { QueryKeysSchema } from "./types.js"
 
 describe("buildInsertManyQuery", () => {
 	// Test empty input
@@ -46,7 +46,7 @@ describe("buildInsertManyQuery", () => {
 			boolField: boolean
 		}
 
-		const queryKeys: QueryKeys<TestEntity> = {
+		const queryKeys: QueryKeysSchema<TestEntity> = {
 			textField: { type: "TEXT" },
 			intField: { type: "INTEGER" },
 			realField: { type: "REAL" },
@@ -94,7 +94,7 @@ describe("buildInsertManyQuery", () => {
 	// Test with timestamps
 	it("includes RETURNING clause with timestamps", () => {
 		const entities = [{ name: "test" }]
-		const queryKeys: QueryKeys<{ name: string }> = {
+		const queryKeys: QueryKeysSchema<{ name: string }> = {
 			name: { type: "TEXT" },
 		}
 
@@ -115,7 +115,7 @@ describe("buildInsertManyQuery", () => {
 			optional?: string
 		}
 
-		const queryKeys: QueryKeys<TestEntityNullable> = {
+		const queryKeys: QueryKeysSchema<TestEntityNullable> = {
 			required: { type: "TEXT" },
 			optional: { type: "TEXT", nullable: true },
 		}
@@ -144,7 +144,7 @@ describe("buildInsertManyQuery", () => {
 			uniqueField: string
 		}
 
-		const queryKeys: QueryKeys<TestEntityUnique> = {
+		const queryKeys: QueryKeysSchema<TestEntityUnique> = {
 			uniqueField: { type: "TEXT", unique: true },
 		}
 
@@ -173,7 +173,7 @@ describe("buildInsertManyQuery", () => {
 			fieldWithDefault: string
 		}
 
-		const queryKeys: QueryKeys<TestEntityDefault> = {
+		const queryKeys: QueryKeysSchema<TestEntityDefault> = {
 			fieldWithDefault: { type: "TEXT", default: "default_value" },
 		}
 
@@ -205,7 +205,7 @@ describe("buildInsertManyQuery", () => {
 			updatedAt?: string
 		}
 
-		const queryKeys: QueryKeys<TestEntityWithIgnored> = {
+		const queryKeys: QueryKeysSchema<TestEntityWithIgnored> = {
 			name: { type: "TEXT" },
 			_id: { type: "INTEGER" },
 			createdAt: { type: "TEXT" },

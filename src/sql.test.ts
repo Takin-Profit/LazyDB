@@ -9,7 +9,7 @@
 import test from "node:test"
 import assert from "node:assert"
 import fc from "fast-check"
-import type { LazyDbColumnType, QueryKeys } from "./types.js"
+import type { LazyDbColumnType, QueryKeysSchema } from "./types.js"
 import {
 	buildCreateTableSQL,
 	buildInsertQuery,
@@ -311,12 +311,15 @@ test("buildCreateTableSQL", async (t) => {
 	})
 
 	await t.test("creates table with query keys", () => {
-		const queryKeys: QueryKeys<{ name: string; age: number; active: boolean }> =
-			{
-				name: { type: "TEXT" },
-				age: { type: "INTEGER" },
-				active: { type: "BOOLEAN" },
-			}
+		const queryKeys: QueryKeysSchema<{
+			name: string
+			age: number
+			active: boolean
+		}> = {
+			name: { type: "TEXT" },
+			age: { type: "INTEGER" },
+			active: { type: "BOOLEAN" },
+		}
 
 		const sql = buildCreateTableSQL("test_table", queryKeys)
 		assert.strictEqual(
@@ -331,7 +334,7 @@ test("buildCreateTableSQL", async (t) => {
 	})
 
 	await t.test("handles NOT NULL constraint", () => {
-		const queryKeys: QueryKeys<{ required: string; optional: string }> = {
+		const queryKeys: QueryKeysSchema<{ required: string; optional: string }> = {
 			required: { type: "TEXT" },
 			optional: { type: "TEXT", nullable: true },
 		}
@@ -352,7 +355,7 @@ test("buildCreateTableSQL", async (t) => {
 		const sql = buildCreateTableSQL(
 			"test_table",
 			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-			queryKeys as QueryKeys<any>
+			queryKeys as QueryKeysSchema<any>
 		)
 		assert.ok(sql.includes("name TEXT DEFAULT 'unnamed'"))
 		assert.ok(sql.includes("count INTEGER DEFAULT 0"))
@@ -368,7 +371,7 @@ test("buildCreateTableSQL", async (t) => {
 		const sql = buildCreateTableSQL(
 			"test_table",
 			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-			queryKeys as QueryKeys<any>
+			queryKeys as QueryKeysSchema<any>
 		)
 		assert.ok(sql.includes("email TEXT NOT NULL UNIQUE"))
 		assert.ok(sql.includes("username TEXT NOT NULL UNIQUE"))
@@ -385,7 +388,7 @@ test("createIndexes", async (t) => {
 		const statements = createIndexes(
 			"test_table",
 			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-			queryKeys as QueryKeys<any>
+			queryKeys as QueryKeysSchema<any>
 		)
 
 		assert.strictEqual(statements.length, 2)
@@ -407,7 +410,7 @@ test("createIndexes", async (t) => {
 		const statements = createIndexes(
 			"test_table",
 			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-			queryKeys as QueryKeys<any>
+			queryKeys as QueryKeysSchema<any>
 		)
 		assert.strictEqual(statements.length, 3)
 		assert.ok(
@@ -447,7 +450,10 @@ test("buildCreateTableSQL validations", async (t) => {
 		}
 
 		// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-		const sql = buildCreateTableSQL(tableName, queryKeys as QueryKeys<any>)
+		const sql = buildCreateTableSQL(
+			tableName,
+			queryKeys as QueryKeysSchema<any>
+		)
 		assert.ok(sql.includes("field1"))
 		assert.ok(sql.includes("field2"))
 	})
@@ -460,7 +466,10 @@ test("buildCreateTableSQL validations", async (t) => {
 		}
 
 		// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-		const statements = createIndexes(tableName, queryKeys as QueryKeys<any>)
+		const statements = createIndexes(
+			tableName,
+			queryKeys as QueryKeysSchema<any>
+		)
 		assert.strictEqual(statements.length, 2)
 		assert.ok(statements[0].includes("field1"))
 		assert.ok(statements[0].includes("UNIQUE"))
@@ -508,7 +517,7 @@ test("buildInsertQuery", async (t) => {
 			active: boolean
 		}
 
-		const queryKeys: QueryKeys<TestEntity> = {
+		const queryKeys: QueryKeysSchema<TestEntity> = {
 			name: { type: "TEXT" },
 			age: { type: "INTEGER" },
 			active: { type: "BOOLEAN" },
@@ -538,7 +547,7 @@ test("buildInsertQuery", async (t) => {
 			age?: number
 		}
 
-		const queryKeys: QueryKeys<TestEntity> = {
+		const queryKeys: QueryKeysSchema<TestEntity> = {
 			name: { type: "TEXT" },
 			age: { type: "INTEGER" },
 		}
@@ -564,7 +573,7 @@ test("buildInsertQuery", async (t) => {
 			age: number | null
 		}
 
-		const queryKeys: QueryKeys<TestEntity> = {
+		const queryKeys: QueryKeysSchema<TestEntity> = {
 			name: { type: "TEXT", nullable: true },
 			age: { type: "INTEGER", nullable: true },
 		}
@@ -591,7 +600,7 @@ test("buildInsertQuery", async (t) => {
 			extraField: string // not in queryKeys
 		}
 
-		const queryKeys: QueryKeys<TestEntity> = {
+		const queryKeys: QueryKeysSchema<TestEntity> = {
 			name: { type: "TEXT" },
 		}
 

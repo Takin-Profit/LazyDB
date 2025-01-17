@@ -18,10 +18,10 @@ import {
 	type DatabaseOptions,
 	DatabaseOptions as DatabaseOptionsSchema,
 	SerializerOptions as SerializerOptionsSchema,
-	type QueryKeys,
+	type QueryKeysSchema,
 	type EntityType,
 } from "./types.js"
-import { Repository } from "./repository.new.js"
+import { Repository } from "./repository.js"
 import {
 	createStatementCache,
 	type StatementCache,
@@ -34,7 +34,7 @@ const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 ).default
 
 type RepositoryFactory<T extends EntityType> = {
-	create<K extends QueryKeys<T>>(
+	create<K extends QueryKeysSchema<T>>(
 		options?: Omit<RepositoryOptions<T, K>, "serializer">
 	): Repository<T, K>
 }
@@ -54,7 +54,7 @@ type CreateFactoryProps = {
 function _createIndexes<T extends EntityType>(
 	name: string,
 	db: DatabaseSync,
-	queryKeys: QueryKeys<T>,
+	queryKeys: QueryKeysSchema<T>,
 	logger?: (message: string) => void
 ): void {
 	const statements = createIndexes(name, queryKeys)
@@ -77,7 +77,7 @@ function _createIndexes<T extends EntityType>(
 const createRepositoryFactory = <T extends EntityType>(
 	props: CreateFactoryProps
 ): RepositoryFactory<T> => ({
-	create<K extends QueryKeys<T>>(
+	create<K extends QueryKeysSchema<T>>(
 		options?: Omit<RepositoryOptions<T, K>, "serializer">
 	) {
 		props.logger?.(`Creating repository: ${props.name}`)

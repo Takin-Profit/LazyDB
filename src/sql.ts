@@ -11,13 +11,14 @@ import {
 	type LazyDbColumnType,
 	type LazyDbValue,
 	type NodeSqliteValue,
+	type QueryKeysSchema,
 	type QueryKeys,
 } from "./types.js"
 import { isValidationErrors } from "./utils.js"
 
 export function buildCreateTableSQL<T extends EntityType>(
 	name: string,
-	queryKeys?: QueryKeys<T>,
+	queryKeys?: QueryKeysSchema<T>,
 	timestamps = false
 ): string {
 	// biome-ignore lint/style/noUnusedTemplateLiteral: <explanation>
@@ -77,7 +78,7 @@ export function buildCreateTableSQL<T extends EntityType>(
 
 export const createIndexes = <T extends EntityType>(
 	name: string,
-	queryKeys: QueryKeys<T>
+	queryKeys: QueryKeysSchema<T>
 ) =>
 	Object.entries(queryKeys).map(([field, def]) => {
 		if (isQueryKeyDef(def)) {
@@ -161,7 +162,7 @@ interface InsertQueryResult {
 
 export function buildInsertQuery<T extends Record<string, unknown> | object>(
 	tableName: string,
-	entity: Omit<T, "_id" | "createdAt" | "updatedAt">,
+	entity: T,
 	queryKeys?: QueryKeys<T>,
 	timestamps = false
 ): InsertQueryResult {
@@ -211,11 +212,9 @@ interface InsertManyQueryResult {
  * @param timestamps Whether to include timestamp fields
  * @returns Object containing the SQL query and array of value arrays
  */
-export function buildInsertManyQuery<
-	T extends Record<string, unknown> | object,
->(
+export function buildInsertManyQuery<T extends EntityType>(
 	tableName: string,
-	entities: Omit<T, "_id" | "createdAt" | "updatedAt">[],
+	entities: T[],
 	queryKeys?: QueryKeys<T>,
 	timestamps = false
 ): InsertManyQueryResult {

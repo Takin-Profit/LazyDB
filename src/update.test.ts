@@ -1,7 +1,7 @@
 import { describe, it } from "node:test"
 import assert from "node:assert"
-import type { QueryKeys } from "./types.js"
-import { buildUpdateManyQuery, buildUpdateQuery } from "./update.js"
+import type { QueryKeysSchema } from "./types.js"
+import { buildUpdateQuery } from "./update.js"
 
 describe("buildUpdateQuery", () => {
 	// Test basic update with query keys
@@ -11,7 +11,7 @@ describe("buildUpdateQuery", () => {
 			id: number
 		}
 
-		const queryKeys: QueryKeys<TestEntity> = {
+		const queryKeys: QueryKeysSchema<TestEntity> = {
 			name: { type: "TEXT" },
 			id: { type: "INTEGER" },
 		}
@@ -46,7 +46,7 @@ describe("buildUpdateQuery", () => {
 			boolField: boolean
 		}
 
-		const queryKeys: QueryKeys<TestEntity> = {
+		const queryKeys: QueryKeysSchema<TestEntity> = {
 			textField: { type: "TEXT" },
 			intField: { type: "INTEGER" },
 			realField: { type: "REAL" },
@@ -93,7 +93,7 @@ describe("buildUpdateQuery", () => {
 			id: number
 		}
 
-		const queryKeys: QueryKeys<TestEntity> = {
+		const queryKeys: QueryKeysSchema<TestEntity> = {
 			name: { type: "TEXT" },
 			id: { type: "INTEGER" },
 		}
@@ -120,7 +120,7 @@ describe("buildUpdateQuery", () => {
 			optional: string | null
 		}
 
-		const queryKeys: QueryKeys<TestEntityNullable> = {
+		const queryKeys: QueryKeysSchema<TestEntityNullable> = {
 			required: { type: "TEXT" },
 			optional: { type: "TEXT", nullable: true },
 		}
@@ -152,7 +152,7 @@ describe("buildUpdateQuery", () => {
 			updatedAt?: string
 		}
 
-		const queryKeys: QueryKeys<TestEntityWithIgnored> = {
+		const queryKeys: QueryKeysSchema<TestEntityWithIgnored> = {
 			name: { type: "TEXT" },
 			status: { type: "TEXT" },
 		}
@@ -193,7 +193,7 @@ describe("buildUpdateQuery", () => {
 			status: string
 		}
 
-		const queryKeys: QueryKeys<TestEntityComplex> = {
+		const queryKeys: QueryKeysSchema<TestEntityComplex> = {
 			name: { type: "TEXT" },
 			age: { type: "INTEGER" },
 			status: { type: "TEXT" },
@@ -231,226 +231,5 @@ describe("buildUpdateQuery", () => {
 			["test", 18, "active"],
 			`Expected ["test", 18, "active"] but got ${JSON.stringify(params)}`
 		)
-	})
-})
-
-describe("buildUpdateManyQuery", () => {
-	// Test basic update with simple fields
-	it("builds basic update query", () => {
-		interface TestEntity {
-			name: string
-			age: number
-			active: boolean
-		}
-
-		const updates: Partial<TestEntity> = {
-			name: "test",
-			age: 25,
-		}
-
-		const queryKeys: QueryKeys<TestEntity> = {
-			name: { type: "TEXT" },
-			age: { type: "INTEGER" },
-			active: { type: "BOOLEAN" },
-		}
-
-		const { sql, params } = buildUpdateManyQuery<TestEntity>(
-			"test_table",
-			updates,
-			{ where: ["active", "=", true] },
-			queryKeys
-		)
-
-		assert.equal(
-			sql,
-			"UPDATE test_table SET name = ?, age = ? WHERE active = ?"
-		)
-		assert.deepStrictEqual(params, ["test", 25, 1])
-	})
-
-	// Test with timestamps enabled
-	it("includes updatedAt when timestamps enabled", () => {
-		interface TestEntity {
-			name: string
-		}
-
-		const updates: Partial<TestEntity> = {
-			name: "test",
-		}
-
-		const queryKeys: QueryKeys<TestEntity> = {
-			name: { type: "TEXT" },
-		}
-
-		const { sql, params } = buildUpdateManyQuery<TestEntity>(
-			"test_table",
-			updates,
-			{ where: ["name", "=", "old"] },
-			queryKeys,
-			true
-		)
-
-		assert.equal(
-			sql,
-			"UPDATE test_table SET name = ?, updatedAt = CURRENT_TIMESTAMP WHERE name = ?"
-		)
-		assert.deepStrictEqual(params, ["test", "old"])
-	})
-
-	// Test with multiple WHERE conditions
-	it("handles complex WHERE conditions", () => {
-		interface TestEntity {
-			status: string
-			age: number
-			name: string
-		}
-
-		const updates: Partial<TestEntity> = {
-			status: "active",
-		}
-
-		const queryKeys: QueryKeys<TestEntity> = {
-			status: { type: "TEXT" },
-			age: { type: "INTEGER" },
-			name: { type: "TEXT" },
-		}
-
-		const { sql, params } = buildUpdateManyQuery<TestEntity>(
-			"test_table",
-			updates,
-			{ where: [["age", ">", 18], "AND", ["name", "LIKE", "John%"]] },
-			queryKeys
-		)
-
-		assert.equal(
-			sql,
-			"UPDATE test_table SET status = ? WHERE (age > ? AND name LIKE ?)"
-		)
-		assert.deepStrictEqual(params, ["active", 18, "John%"])
-	})
-
-	// Test with no WHERE clause
-	it("handles updates with no WHERE clause", () => {
-		interface TestEntity {
-			name: string
-		}
-
-		const updates: Partial<TestEntity> = {
-			name: "test",
-		}
-
-		const queryKeys: QueryKeys<TestEntity> = {
-			name: { type: "TEXT" },
-		}
-
-		const { sql, params } = buildUpdateManyQuery<TestEntity>(
-			"test_table",
-			updates,
-			{},
-			queryKeys
-		)
-
-		assert.equal(sql, "UPDATE test_table SET name = ?")
-		assert.deepStrictEqual(params, ["test"])
-	})
-
-	// Test with different data types
-	it("handles different data types correctly", () => {
-		interface TestEntity {
-			textField: string
-			numberField: number
-			boolField: boolean
-			nullField: string | null
-		}
-
-		const updates: Partial<TestEntity> = {
-			textField: "test",
-			numberField: 123,
-			boolField: true,
-			nullField: null,
-		}
-
-		const queryKeys: QueryKeys<TestEntity> = {
-			textField: { type: "TEXT" },
-			numberField: { type: "INTEGER" },
-			boolField: { type: "BOOLEAN" },
-			nullField: { type: "TEXT", nullable: true },
-		}
-
-		const { sql, params } = buildUpdateManyQuery<TestEntity>(
-			"test_table",
-			updates,
-			{},
-			queryKeys
-		)
-
-		assert.equal(
-			sql,
-			"UPDATE test_table SET textField = ?, numberField = ?, boolField = ?, nullField = ?"
-		)
-		assert.deepStrictEqual(params, ["test", 123, true, null])
-	})
-
-	// Test empty updates object with timestamps
-	it("handles empty updates object with timestamps", () => {
-		interface TestEntity {
-			name: string
-		}
-
-		const updates: Partial<TestEntity> = {}
-
-		const queryKeys: QueryKeys<TestEntity> = {
-			name: { type: "TEXT" },
-		}
-
-		const { sql, params } = buildUpdateManyQuery<TestEntity>(
-			"test_table",
-			updates,
-			{ where: ["name", "=", "test"] },
-			queryKeys,
-			true
-		)
-
-		assert.equal(
-			sql,
-			"UPDATE test_table SET updatedAt = CURRENT_TIMESTAMP WHERE name = ?"
-		)
-		assert.deepStrictEqual(params, ["test"])
-	})
-
-	// Test ignoring system fields
-	it("ignores system fields (_id, createdAt, updatedAt)", () => {
-		interface TestEntity {
-			name: string
-			_id?: number
-			createdAt?: string
-			updatedAt?: string
-			cars: { make: string; model: { mileage: number } }
-		}
-
-		const queryKeys: QueryKeys<TestEntity> = {
-			name: { type: "TEXT" },
-			_id: { type: "INTEGER" },
-			createdAt: { type: "TEXT" },
-			updatedAt: { type: "TEXT" },
-			"cars.model.mileage": { type: "INTEGER" },
-		}
-
-		const updates: Partial<TestEntity> = {
-			name: "test",
-			_id: 1,
-			createdAt: "now",
-			updatedAt: "now",
-		}
-
-		const { sql, params } = buildUpdateManyQuery<TestEntity>(
-			"test_table",
-			updates,
-			{},
-			queryKeys
-		)
-
-		assert.equal(sql, "UPDATE test_table SET name = ?")
-		assert.deepStrictEqual(params, ["test"])
 	})
 })

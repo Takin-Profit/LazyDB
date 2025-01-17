@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { buildFindQuery, type FindOptions } from "./find.js"
-import type { QueryKeys } from "./types.js"
+import type { QueryKeysSchema } from "./types.js"
 import type { Where } from "./where.js"
 
 interface TestEntity {
@@ -14,7 +14,7 @@ test("buildFindQuery", async (t) => {
 	const tableName = "test_table"
 
 	// Define queryKeys for the test entity
-	const queryKeys: QueryKeys<TestEntity> = {
+	const queryKeys: QueryKeysSchema<TestEntity> = {
 		name: { type: "TEXT" },
 		age: { type: "INTEGER" },
 		active: { type: "BOOLEAN" },
