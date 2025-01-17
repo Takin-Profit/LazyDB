@@ -4,13 +4,12 @@
 
 import type { DatabaseSync, StatementSync } from "node:sqlite"
 import {
+	validateRepositoryOptions,
 	type Entity,
 	type EntityType,
 	type QueryKeys,
-	RepositoryOptions,
 } from "./types.js"
 
-import { isValidationErrors, validate } from "./utils.js"
 import {
 	isNodeSqliteError,
 	NodeSqliteError,
@@ -23,6 +22,7 @@ import { buildFindQuery, type FindOptions } from "./find.js"
 import { buildInsertManyQuery, buildInsertQuery } from "./sql.js"
 import { buildUpdateQuery } from "./update.js"
 import { buildDeleteManyQuery, buildDeleteQuery } from "./delete.js"
+import { isValidationErrs } from "./validate.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -52,8 +52,8 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 		name: string
 	}) {
 		// Validate repository options
-		const validationResult = validate(RepositoryOptions, options)
-		if (isValidationErrors(validationResult)) {
+		const validationResult = validateRepositoryOptions(options)
+		if (isValidationErrs(validationResult)) {
 			throw new NodeSqliteError(
 				"ERR_SQLITE_REPOSITORY",
 				SqlitePrimaryResultCode.SQLITE_MISUSE,

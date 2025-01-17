@@ -2,48 +2,21 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-import { PragmaConfig } from "./pragmas.js"
-import { StatementCacheOptions } from "./cache.js"
-import {
-	type $,
-	any,
-	array,
-	bigint,
-	bool,
-	func,
-	literal,
-	nil,
-	num,
-	object,
-	optional,
-	partial,
-	record,
-	string,
-	uint8Array,
-	union,
-	unit,
-	unknown,
-	validate,
-} from "./utils.js"
+import type { PragmaConfig } from "./pragmas.js"
+import type { StatementCacheOptions } from "./cache.js"
+import { validationErr, type ValidationError } from "./validate.js"
 
 // Define the SQLite column types
-const LazyDbColumnType = union([
-	literal("TEXT"),
-	literal("INTEGER"),
-	literal("REAL"),
-	literal("BOOLEAN"),
-])
+export const LazyDbColumnTypes = ["TEXT", "INTEGER", "REAL", "BOOLEAN"] as const
+export type LazyDbColumnType = (typeof LazyDbColumnTypes)[number]
 
-const SystemFields = union([
-	literal("_id"),
-	literal("__lazy_data"),
-	literal("createdAt"),
-	literal("updatedAt"),
-])
-
-export type SystemFields = $<typeof SystemFields>
-
-export type LazyDbColumnType = $<typeof LazyDbColumnType>
+export const SystemFieldTypes = [
+	"_id",
+	"__lazy_data",
+	"createdAt",
+	"updatedAt",
+] as const
+export type SystemFields = (typeof SystemFieldTypes)[number]
 
 export type EntityType = Record<string, unknown> | object
 
@@ -66,82 +39,88 @@ type QueryKeyOptions<T> = {
 	default?: T
 }
 
-const QueryKeyOptions = partial(
-	object({
-		unique: literal(true),
-		nullable: literal(true),
-		default: any(),
-	})
-)
-
-const QueryKeyDef = object({
-	type: LazyDbColumnType,
-	index: optional(union([literal(true), object({ unique: literal(true) })])),
-	nullable: optional(literal(true)),
-	default: optional(any()),
-})
-
-export type QueryKeyDef<T> = {
+export type QueryKeyDef<T = unknown> = {
 	type: ValidColumnTypeMap<T>
 } & QueryKeyOptions<T>
 
-export const QueryKeys = object({
-	queryKeys: optional(record(string(), QueryKeyDef)),
-})
+export function isQueryKeyDef(data: unknown): data is QueryKeyDef {
+	if (typeof data !== "object" || data === null) {
+		return false
+	}
+	const def = data as QueryKeyDef
+	return (
+		typeof def.type === "string" &&
+		LazyDbColumnTypes.includes(def.type as LazyDbColumnType)
+	)
+}
 
-export const isQueryKeyDef = (data: unknown): data is QueryKeyDef<unknown> =>
-	typeof data === "object" &&
-	data !== null &&
-	Object.hasOwn(data, "type") &&
-	typeof (data as QueryKeyDef<unknown>).type === "string"
-
-export type DotPaths<T, Prev extends string = ""> = T extends object // If T extends an object, we iterate over its keys
+export type DotPaths<T, Prev extends string = ""> = T extends object
 	? {
-			[K in keyof T & string]: // For each key, build the "dot prefix"
-			// If Prev is empty, the prefix is just K
-			// Else, prefix is `Prev.K`
-			T[K] extends object
-				? // Recurse into nested objects
+			[K in keyof T & string]: T[K] extends object
+				?
 						| DotPaths<T[K], Prev extends "" ? K : `${Prev}.${K}`>
-						// Also include the path itself if you want to treat the entire sub-object as a valid field
-						// (This can be optional, depending on your design.)
 						| (Prev extends "" ? K : `${Prev}.${K}`)
-				: // If T[K] is not an object (string, number, boolean, etc.)
-					// the path is just `Prev.K`
-					Prev extends ""
+				: Prev extends ""
 					? K
 					: `${Prev}.${K}`
 		}[keyof T & string]
 	: never
 
-export type DotPathValue<T, Path extends string> = Path extends `${
-	infer Left // If Path has a dot, split it into [Left, Rest]
-}.${infer Rest}`
+export type DotPathValue<
+	T,
+	Path extends string,
+> = Path extends `${infer Left}.${infer Rest}`
 	? Left extends keyof T
-		? // Recurse into T[Left] with the remainder
-			DotPathValue<T[Left], Rest>
+		? DotPathValue<T[Left], Rest>
 		: never
-	: // else Path is a single key
-		Path extends keyof T
+	: Path extends keyof T
 		? T[Path]
 		: never
 
-// Then modify the existing QueryKeys type to exclude system fields
 export type QueryKeysSchema<T> = {
 	[P in Exclude<DotPaths<T>, SystemFields>]?: QueryKeyDef<DotPathValue<T, P>>
 }
 
-// First let's type the system query keys
 export type SystemQueryKeys = {
 	_id?: QueryKeyDef<number>
 	createdAt?: QueryKeyDef<string>
 	updatedAt?: QueryKeyDef<string>
 }
 
-// Then create a merged type that preserves both sets of query keys
 export type QueryKeys<T> = QueryKeysSchema<T> & SystemQueryKeys
 
-export const validateQueryKeys = (data: unknown) => validate(QueryKeys, data)
+export function validateQueryKeys(data: unknown): ValidationError[] {
+	const errors: ValidationError[] = []
+
+	if (typeof data !== "object" || data === null) {
+		return [validationErr({ msg: "Query keys must be an object" })]
+	}
+
+	const queryKeys = data as Record<string, unknown>
+
+	for (const [key, value] of Object.entries(queryKeys)) {
+		if (SystemFieldTypes.includes(key as SystemFields)) {
+			errors.push(
+				validationErr({
+					msg: `System field "${key}" cannot be used as a query key`,
+					path: key,
+				})
+			)
+			continue
+		}
+
+		if (!isQueryKeyDef(value)) {
+			errors.push(
+				validationErr({
+					msg: `Invalid query key definition for "${key}"`,
+					path: key,
+				})
+			)
+		}
+	}
+
+	return errors
+}
 
 export type Entity<T extends EntityType> = {
 	_id?: number
@@ -149,40 +128,58 @@ export type Entity<T extends EntityType> = {
 	updatedAt?: string
 } & T
 
-export const SerializerOptions = union([
-	literal("json"),
-	literal("msgpack"),
-	object({
-		encode: func([unknown()], uint8Array()),
-		decode: func([uint8Array()], unknown()),
-	}),
-])
+export type SerializerConfig = {
+	encode: (obj: unknown) => Uint8Array
+	decode: (buf: Uint8Array) => unknown
+}
 
-export type SerializerOptions = $<typeof SerializerOptions>
+export type SerializerOptions = "json" | "msgpack" | SerializerConfig
 
-export const DatabaseOptions = object({
-	location: string(),
-	timestamps: optional(bool()),
-	serializer: optional(SerializerOptions),
-	pragma: optional(PragmaConfig),
-	environment: optional(
-		union([literal("development"), literal("testing"), literal("production")])
-	),
-	logger: optional(func([string()], unit())),
-	statementCache: optional(union([literal(true), StatementCacheOptions])),
-})
+export type DatabaseOptions = {
+	location: string
+	timestamps?: boolean
+	serializer?: SerializerOptions
+	pragma?: PragmaConfig
+	environment?: "development" | "testing" | "production"
+	logger?: (message: string) => void
+	statementCache?: true | StatementCacheOptions
+}
 
-export type DatabaseOptions = $<typeof DatabaseOptions>
+export function validateDatabaseOptions(options: unknown): ValidationError[] {
+	const errors: ValidationError[] = []
 
-export const RepositoryOptions = object({
-	timestamps: optional(bool()),
-	queryKeys: optional(QueryKeys),
-	serializer: object({
-		encode: func([unknown()], uint8Array()),
-		decode: func([uint8Array()], unknown()),
-	}),
-	logger: optional(func([string()], unit())),
-})
+	if (typeof options !== "object" || options === null) {
+		return [validationErr({ msg: "Database options must be an object" })]
+	}
+
+	const opts = options as DatabaseOptions
+
+	if (typeof opts.location !== "string") {
+		errors.push(
+			validationErr({ msg: "location must be a string", path: "location" })
+		)
+	}
+
+	if (opts.timestamps !== undefined && typeof opts.timestamps !== "boolean") {
+		errors.push(
+			validationErr({ msg: "timestamps must be a boolean", path: "timestamps" })
+		)
+	}
+
+	if (
+		opts.environment &&
+		!["development", "testing", "production"].includes(opts.environment)
+	) {
+		errors.push(
+			validationErr({
+				msg: "environment must be 'development', 'testing', or 'production'",
+				path: "environment",
+			})
+		)
+	}
+
+	return errors
+}
 
 export type RepositoryOptions<
 	T extends EntityType,
@@ -190,27 +187,66 @@ export type RepositoryOptions<
 > = Readonly<{
 	queryKeys?: QK
 	timestamps?: boolean
-	serializer: {
-		encode: (obj: unknown) => Uint8Array
-		decode: (buf: Uint8Array) => unknown
-	}
+	serializer: SerializerConfig
 	logger?: (msg: string) => void
 }>
 
-export const LazyDbValue = union([
-	string(),
-	num(),
-	bool(),
-	nil(),
-	bigint(),
-	array(union([string(), num(), bool(), nil(), bigint()])),
-])
+export function validateRepositoryOptions(options: unknown): ValidationError[] {
+	const errors: ValidationError[] = []
 
-/**
- * SQLite supported value types for WHERE conditions
- */
-export type LazyDbValue = $<typeof LazyDbValue>
+	if (typeof options !== "object" || options === null) {
+		return [validationErr({ msg: "Repository options must be an object" })]
+	}
 
-export const NodeSqliteValue = union([nil(), num(), bigint(), string()])
+	const opts = options as Partial<RepositoryOptions<EntityType>>
 
-export type NodeSqliteValue = $<typeof NodeSqliteValue>
+	if (!opts.serializer) {
+		errors.push(
+			validationErr({ msg: "serializer is required", path: "serializer" })
+		)
+	} else if (
+		typeof opts.serializer !== "object" ||
+		typeof opts.serializer.encode !== "function" ||
+		typeof opts.serializer.decode !== "function"
+	) {
+		errors.push(
+			validationErr({
+				msg: "serializer must have encode and decode functions",
+				path: "serializer",
+			})
+		)
+	}
+
+	if (opts.timestamps !== undefined && typeof opts.timestamps !== "boolean") {
+		errors.push(
+			validationErr({ msg: "timestamps must be a boolean", path: "timestamps" })
+		)
+	}
+
+	if (opts.logger !== undefined && typeof opts.logger !== "function") {
+		errors.push(
+			validationErr({ msg: "logger must be a function", path: "logger" })
+		)
+	}
+
+	if (opts.queryKeys !== undefined) {
+		const queryKeyErrors = validateQueryKeys(opts.queryKeys)
+		errors.push(
+			...queryKeyErrors.map((err) => ({
+				...err,
+				path: `queryKeys.${err.path || ""}`,
+			}))
+		)
+	}
+
+	return errors
+}
+
+export type LazyDbValue =
+	| string
+	| number
+	| boolean
+	| null
+	| bigint
+	| Array<string | number | boolean | null | bigint>
+export type NodeSqliteValue = null | number | bigint | string

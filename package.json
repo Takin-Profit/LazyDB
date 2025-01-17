@@ -44,8 +44,6 @@
     "typescript": "^5.6.3"
   },
   "dependencies": {
-    "@sinclair/typebox": "^0.34.13",
-    "arktype": "2.0.0-rc.33",
     "fast-safe-stringify": "^2.1.1",
     "msgpack-lite": "^0.1.26"
   },

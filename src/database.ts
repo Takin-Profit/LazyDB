@@ -11,16 +11,16 @@ import {
 	isNodeSqliteError,
 	SqlitePrimaryResultCode,
 } from "./errors.js"
-import { validate, isValidationErrors } from "./utils.js"
 import {
-	RepositoryOptions,
+	type RepositoryOptions,
 	type SerializerOptions,
 	type DatabaseOptions,
-	DatabaseOptions as DatabaseOptionsSchema,
-	SerializerOptions as SerializerOptionsSchema,
 	type QueryKeysSchema,
 	type EntityType,
 	type SystemQueryKeys,
+	validateRepositoryOptions,
+	validateDatabaseOptions,
+	isValidationErrs,
 } from "./types.js"
 import { Repository } from "./repository.js"
 import {
@@ -87,9 +87,9 @@ const createRepositoryFactory = <T extends EntityType>(
 	) {
 		props.logger?.(`Creating repository: ${props.name}`)
 
-		const result = validate(RepositoryOptions, options)
+		const result = validateRepositoryOptions(options)
 
-		if (isValidationErrors(result)) {
+		if (isValidationErrs(result)) {
 			throw new NodeSqliteError(
 				"ERR_SQLITE_REPOSITORY",
 				SqlitePrimaryResultCode.SQLITE_MISUSE,
@@ -208,8 +208,8 @@ class LazyDb {
 			this.#logger?.(`Opening database at ${options.location}`)
 
 			// Validate options
-			const validationResult = validate(DatabaseOptionsSchema, options)
-			if (isValidationErrors(validationResult)) {
+			const validationResult = validateDatabaseOptions(options)
+			if (isValidationErrs(validationResult)) {
 				this.#logger?.("Configuration validation failed")
 				throw new NodeSqliteError(
 					"ERR_SQLITE_CONFIG",
@@ -388,20 +388,6 @@ class LazyDb {
 		try {
 			// Validate serializer options
 			this.#logger?.("Validating serializer configuration")
-			const validationResult = validate(
-				SerializerOptionsSchema,
-				serializerOption
-			)
-			if (isValidationErrors(validationResult)) {
-				this.#logger?.("Serializer validation failed")
-				throw new NodeSqliteError(
-					"ERR_SQLITE_CONFIG",
-					SqlitePrimaryResultCode.SQLITE_MISUSE,
-					"Invalid serializer configuration",
-					`Serializer validation failed: ${validationResult.map((e) => e.message).join(", ")}`,
-					undefined
-				)
-			}
 
 			if (typeof serializerOption === "object") {
 				this.#logger?.("Using custom serializer")

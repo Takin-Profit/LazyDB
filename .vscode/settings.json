@@ -1,15 +1,28 @@
 {
     "cSpell.words": [
         "arktype",
+        "Autocheckpoint",
         "AUTOINCREMENT",
         "CANTOPEN",
+        "COMMITHOOK",
+        "errcode",
+        "errstr",
+        "FOREIGNKEY",
+        "IOERR",
         "lazydb",
         "lmdb",
+        "mmap",
         "msgpack",
+        "NOLFS",
         "NOTADB",
+        "NOTNULL",
         "pkgroll",
+        "PRIMARYKEY",
+        "SHAREDCACHE",
         "takinprofit",
-        "upserted"
+        "TOOBIG",
+        "upserted",
+        "VTAB"
     ],
     "conventionalCommits.scopes": [
         "ci"

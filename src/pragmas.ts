@@ -2,84 +2,176 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-import { literal, union, object, bool, num, type $, partial } from "./utils.js"
+import { validationErr, type ValidationError } from "./validate.js"
 
-// Define the journal modes schema
-const JournalMode = union([
-	literal("DELETE"),
-	literal("TRUNCATE"),
-	literal("PERSIST"),
-	literal("MEMORY"),
-	literal("WAL"),
-	literal("OFF"),
-])
+export const JournalModes = [
+	"DELETE",
+	"TRUNCATE",
+	"PERSIST",
+	"MEMORY",
+	"WAL",
+	"OFF",
+] as const
+export type JournalMode = (typeof JournalModes)[number]
 
-// Define the synchronous modes schema
-const SynchronousMode = union([
-	literal("OFF"),
-	literal("NORMAL"),
-	literal("FULL"),
-	literal("EXTRA"),
-])
+export const SynchronousModes = ["OFF", "NORMAL", "FULL", "EXTRA"] as const
+export type SynchronousMode = (typeof SynchronousModes)[number]
 
-// Define the temp store schema
-const TempStore = union([
-	literal("DEFAULT"),
-	literal("FILE"),
-	literal("MEMORY"),
-])
+export const TempStores = ["DEFAULT", "FILE", "MEMORY"] as const
+export type TempStore = (typeof TempStores)[number]
 
-// Define the locking mode schema
-const LockingMode = union([literal("NORMAL"), literal("EXCLUSIVE")])
+export const LockingModes = ["NORMAL", "EXCLUSIVE"] as const
+export type LockingMode = (typeof LockingModes)[number]
 
-// Extract types from schemas
-export type JournalMode = $<typeof JournalMode>
-export type SynchronousMode = $<typeof SynchronousMode>
-export type TempStore = $<typeof TempStore>
-export type LockingMode = $<typeof LockingMode>
+export type PragmaConfig = Partial<{
+	journalMode: JournalMode
+	synchronous: SynchronousMode
+	cacheSize: number
+	mmapSize: number
+	tempStore: TempStore
+	lockingMode: LockingMode
+	busyTimeout: number
+	foreignKeys: boolean
+	walAutocheckpoint: number
+	trustedSchema: boolean
+}>
 
-// Define the pragma configuration schema
-export const PragmaConfig = partial(
-	object({
-		journalMode: JournalMode,
-		synchronous: SynchronousMode,
-		cacheSize: num(),
-		mmapSize: num(),
-		tempStore: TempStore,
-		lockingMode: LockingMode,
-		busyTimeout: num(),
-		foreignKeys: bool(),
-		walAutocheckpoint: num(),
-		trustedSchema: bool(),
-	})
-)
+export function validatePragmaConfig(config: unknown): ValidationError[] {
+	const errors: ValidationError[] = []
 
-// Extract type from schema
-export type PragmaConfig = $<typeof PragmaConfig>
+	if (typeof config !== "object" || config === null) {
+		return [validationErr({ msg: "PragmaConfig must be an object" })]
+	}
 
-// Environment-specific pragma defaults
-const BasePragmaConfig = partial(
-	object({
-		journalMode: JournalMode,
-		synchronous: SynchronousMode,
-		cacheSize: num(),
-		tempStore: TempStore,
-		mmapSize: num(),
-		lockingMode: LockingMode,
-		busyTimeout: num(),
-		foreignKeys: bool(),
-		walAutocheckpoint: num(),
-		trustedSchema: bool(),
-	})
-)
+	const pragmaConfig = config as Record<string, unknown>
 
-// Extract type from schema
-type BasePragmaConfig = $<typeof BasePragmaConfig>
+	if (
+		"journalMode" in pragmaConfig &&
+		!JournalModes.includes(pragmaConfig.journalMode as JournalMode)
+	) {
+		errors.push(
+			validationErr({
+				msg: `Invalid journal mode: ${pragmaConfig.journalMode}`,
+				path: "journalMode",
+			})
+		)
+	}
+
+	if (
+		"synchronous" in pragmaConfig &&
+		!SynchronousModes.includes(pragmaConfig.synchronous as SynchronousMode)
+	) {
+		errors.push(
+			validationErr({
+				msg: `Invalid synchronous mode: ${pragmaConfig.synchronous}`,
+				path: "synchronous",
+			})
+		)
+	}
+
+	if (
+		"tempStore" in pragmaConfig &&
+		!TempStores.includes(pragmaConfig.tempStore as TempStore)
+	) {
+		errors.push(
+			validationErr({
+				msg: `Invalid temp store: ${pragmaConfig.tempStore}`,
+				path: "tempStore",
+			})
+		)
+	}
+
+	if (
+		"lockingMode" in pragmaConfig &&
+		!LockingModes.includes(pragmaConfig.lockingMode as LockingMode)
+	) {
+		errors.push(
+			validationErr({
+				msg: `Invalid locking mode: ${pragmaConfig.lockingMode}`,
+				path: "lockingMode",
+			})
+		)
+	}
+
+	if (
+		"cacheSize" in pragmaConfig &&
+		typeof pragmaConfig.cacheSize !== "number"
+	) {
+		errors.push(
+			validationErr({
+				msg: "cacheSize must be a number",
+				path: "cacheSize",
+			})
+		)
+	}
+
+	if ("mmapSize" in pragmaConfig && typeof pragmaConfig.mmapSize !== "number") {
+		errors.push(
+			validationErr({
+				msg: "mmapSize must be a number",
+				path: "mmapSize",
+			})
+		)
+	}
+
+	if (
+		"busyTimeout" in pragmaConfig &&
+		typeof pragmaConfig.busyTimeout !== "number"
+	) {
+		errors.push(
+			validationErr({
+				msg: "busyTimeout must be a number",
+				path: "busyTimeout",
+			})
+		)
+	}
+
+	if (
+		"foreignKeys" in pragmaConfig &&
+		typeof pragmaConfig.foreignKeys !== "boolean"
+	) {
+		errors.push(
+			validationErr({
+				msg: "foreignKeys must be a boolean",
+				path: "foreignKeys",
+			})
+		)
+	}
+
+	if (
+		"walAutocheckpoint" in pragmaConfig &&
+		typeof pragmaConfig.walAutocheckpoint !== "number"
+	) {
+		errors.push(
+			validationErr({
+				msg: "walAutocheckpoint must be a number",
+				path: "walAutocheckpoint",
+			})
+		)
+	}
+
+	if (
+		"trustedSchema" in pragmaConfig &&
+		typeof pragmaConfig.trustedSchema !== "boolean"
+	) {
+		errors.push(
+			validationErr({
+				msg: "trustedSchema must be a boolean",
+				path: "trustedSchema",
+			})
+		)
+	}
+
+	return errors
+}
 
 /**
  * Default pragma configurations for different environments
  */
-export const PragmaDefaults: Record<string, BasePragmaConfig> = {
+export const PragmaDefaults: Record<
+	"development" | "testing" | "production",
+	PragmaConfig
+> = {
 	/**
 	 * Development environment defaults - optimized for development workflow
 	 */
@@ -126,7 +218,7 @@ export const PragmaDefaults: Record<string, BasePragmaConfig> = {
 		walAutocheckpoint: 1000,
 		trustedSchema: false, // Safer default for production
 	},
-} as const
+}
 
 /**
  * Generates SQLite PRAGMA statements from configuration
@@ -178,13 +270,3 @@ export function getPragmaStatements(config: PragmaConfig): string[] {
 
 	return statements
 }
-
-// Re-export the schema for validation purposes
-export const schemas = {
-	JournalMode,
-	SynchronousMode,
-	TempStore,
-	LockingMode,
-	PragmaConfig,
-	BasePragmaConfig,
-} as const

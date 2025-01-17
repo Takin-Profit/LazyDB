@@ -153,12 +153,8 @@ test("buildWhereClause - Complex Conditions", async (t) => {
 	})
 
 	await t.test("OR condition", () => {
-		const result = buildWhereClause<ComplexData, typeof queryKeys>(
-			[
-				["status", "=", "pending"],
-				"OR",
-				["status", "=", "active"],
-			] as Where<ComplexData>,
+		const result = buildWhereClause<ComplexData>(
+			[["status", "=", "pending"], "OR", ["status", "=", "active"]],
 			queryKeys
 		)
 		assert.deepStrictEqual(result, {
@@ -169,7 +165,7 @@ test("buildWhereClause - Complex Conditions", async (t) => {
 	})
 
 	await t.test("complex AND/OR combination", () => {
-		const result = buildWhereClause<ComplexData, typeof queryKeys>(
+		const result = buildWhereClause<ComplexData>(
 			[
 				["age", ">=", 18],
 				"AND",
@@ -232,7 +228,7 @@ test("buildWhereClause - Error Cases", async (t) => {
 	await t.test("invalid value type for INTEGER field", () => {
 		assert.throws(
 			() =>
-				buildWhereClause(
+				buildWhereClause<ErrorData>(
 					["age", "=", "not-a-number"] as unknown as Where<ErrorData>,
 					queryKeys
 				),
@@ -243,8 +239,8 @@ test("buildWhereClause - Error Cases", async (t) => {
 	await t.test("invalid value type for REAL field", () => {
 		assert.throws(
 			() =>
-				buildWhereClause(
-					["score", "=", "not-a-number"] as unknown as Where<ErrorData>,
+				buildWhereClause<ErrorData>(
+					["score", "=", "not-a-number" as unknown as number],
 					queryKeys
 				),
 			TypeError
@@ -354,7 +350,7 @@ test("buildWhereClause - Type Enforcement", async (t) => {
 	await t.test("rejects string for INTEGER field", () => {
 		assert.throws(
 			() =>
-				buildWhereClause(
+				buildWhereClause<Data>(
 					["intField", "=", "123"] as unknown as Where<Data>,
 					queryKeys
 				),
@@ -367,7 +363,7 @@ test("buildWhereClause - Type Enforcement", async (t) => {
 	await t.test("rejects number for TEXT field", () => {
 		assert.throws(
 			() =>
-				buildWhereClause(
+				buildWhereClause<Data>(
 					["textField", "=", 123] as unknown as Where<Data>,
 					queryKeys
 				),
@@ -380,7 +376,7 @@ test("buildWhereClause - Type Enforcement", async (t) => {
 	await t.test("rejects string for REAL field", () => {
 		assert.throws(
 			() =>
-				buildWhereClause(
+				buildWhereClause<Data>(
 					["realField", "=", "123.45"] as unknown as Where<Data>,
 					queryKeys
 				),
@@ -391,7 +387,7 @@ test("buildWhereClause - Type Enforcement", async (t) => {
 	await t.test("rejects string for BOOLEAN field", () => {
 		assert.throws(
 			() =>
-				buildWhereClause(
+				buildWhereClause<Data>(
 					["boolField", "=", "true"] as unknown as Where<Data>,
 					queryKeys
 				),
@@ -428,7 +424,7 @@ test("buildWhereClause - Property Tests", async (t) => {
 				fc.integer(),
 				fc.constantFrom("AND", "OR"),
 				(a, b, op) => {
-					const result1 = buildWhereClause(
+					const result1 = buildWhereClause<{ a: number; b: number }>(
 						[["a", "=", a], op, ["b", "=", b]] as Where<{
 							a: number
 							b: number
@@ -436,7 +432,7 @@ test("buildWhereClause - Property Tests", async (t) => {
 						queryKeys
 					)
 
-					const result2 = buildWhereClause(
+					const result2 = buildWhereClause<{ a: number; b: number }>(
 						[["b", "=", b], op, ["a", "=", a]] as Where<{
 							a: number
 							b: number
@@ -544,7 +540,7 @@ test("buildWhereClause - Property Tests", async (t) => {
 						return acc
 					}, [])
 
-					const result = buildWhereClause(
+					const result = buildWhereClause<{ field: number }>(
 						where as Where<{ field: number }>,
 						queryKeys
 					)

@@ -4,28 +4,7 @@
 
 import type { SupportedValueType } from "node:sqlite"
 import type { EntityType, QueryKeys } from "./types.js"
-import {
-	array,
-	bool,
-	literal,
-	num,
-	object,
-	optional,
-	record,
-	string,
-	union,
-} from "./utils.js"
-import { buildWhereClause, Where } from "./where.js"
-
-// Update the FindOptionsSchema
-export const FindOptions = object({
-	where: optional(Where),
-	limit: optional(num()),
-	offset: optional(num()),
-	orderBy: optional(record(string(), union([literal("ASC"), literal("DESC")]))),
-	distinct: optional(bool()),
-	groupBy: optional(array(string())),
-})
+import { buildWhereClause, type Where } from "./where.js"
 
 export type FindOptions<
 	T extends EntityType,

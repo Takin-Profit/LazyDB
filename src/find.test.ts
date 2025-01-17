@@ -2,7 +2,6 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { buildFindQuery, type FindOptions } from "./find.js"
 import type { QueryKeysSchema } from "./types.js"
-import type { Where } from "./where.js"
 
 interface TestEntity {
 	name: string
@@ -123,7 +122,7 @@ test("buildFindQuery", async (t) => {
 
 	await t.test("should handle IS NULL in WHERE clause", () => {
 		const options: FindOptions<TestEntity> = {
-			where: ["name", "IS", null] as unknown as Where<unknown>,
+			where: ["name", "IS", null],
 		}
 		const result = buildFindQuery(tableName, options, queryKeys)
 		assert.equal(result.sql, "SELECT * FROM test_table WHERE name IS NULL")

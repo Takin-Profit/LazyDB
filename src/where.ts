@@ -4,44 +4,34 @@
 
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
 import { toSqliteValue } from "./sql.js"
-import {
-	type DotPathValue,
-	type EntityType,
+import type {
+	DotPathValue,
+	EntityType,
 	LazyDbValue,
 	NodeSqliteValue,
-	type QueryKeys,
-	type RepositoryOptions,
+	QueryKeys,
+	RepositoryOptions,
 } from "./types.js"
-import {
-	type $,
-	array,
-	isValidationErrors,
-	literal,
-	object,
-	string,
-	tuple,
-	union,
-	validate,
-} from "./utils.js"
 
-const ComparisonOperator = union([
-	literal("="),
-	literal("!="),
-	literal(">"),
-	literal("<"),
-	literal(">="),
-	literal("<="),
-	literal("LIKE"),
-	literal("NOT LIKE"),
-	literal("IN"),
-	literal("NOT IN"),
-	literal("IS"),
-	literal("IS NOT"),
-])
+const COMPARISON_OPERATORS = [
+	"=",
+	"!=",
+	">",
+	"<",
+	">=",
+	"<=",
+	"LIKE",
+	"NOT LIKE",
+	"IN",
+	"NOT IN",
+	"IS",
+	"IS NOT",
+] as const
 
-export type ComparisonOperator = $<typeof ComparisonOperator>
+const LOGICAL_OPERATORS = ["AND", "OR"] as const
 
-const LogicalOperator = union([literal("AND"), literal("OR")])
+export type ComparisonOperator = (typeof COMPARISON_OPERATORS)[number]
+export type LogicalOperator = (typeof LOGICAL_OPERATORS)[number]
 
 // Helper type to get keys that are actually defined in queryKeys
 export type QueryableKeys<
@@ -51,14 +41,6 @@ export type QueryableKeys<
 
 // Helper type to get the value type for a queryable key
 export type QueryableValue<T, K extends string> = DotPathValue<T, K>
-
-export type LogicalOperator = $<typeof LogicalOperator>
-
-export const WhereCondition = tuple([
-	string(),
-	ComparisonOperator,
-	union([LazyDbValue, array(LazyDbValue)]),
-])
 
 type InOperator = "IN" | "NOT IN"
 type NullOperator = "IS" | "IS NOT"
@@ -81,8 +63,7 @@ type GetFieldType<
 	? SystemFieldValueMap[K]
 	: DotPathValue<T, K>
 
-// The core WhereCondition type that ensures only valid fields are used
-export type WhereCondition<
+type SimpleWhereCondition<
 	T extends EntityType,
 	QK extends QueryKeys<T> = QueryKeys<T>,
 > = {
@@ -92,270 +73,171 @@ export type WhereCondition<
 		| [K, NullOperator, null]
 }[ValidKeys<QK>]
 
-const WhereClauseResult = object({
-	sql: string(),
-	params: array(NodeSqliteValue),
-})
-
-/**
- * Result of building a WHERE clause
- */
-export type WhereClauseResult = $<typeof WhereClauseResult>
-
-const ComplexWhereCondition = union([
-	tuple([WhereCondition]),
-	tuple([WhereCondition, LogicalOperator, WhereCondition]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-	tuple([
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-		LogicalOperator,
-		WhereCondition,
-	]),
-])
-
-type ComplexWhereCondition<
+type BooleanClause<
 	T extends EntityType,
 	QK extends QueryKeys<T> = QueryKeys<T>,
-> =
-	| [WhereCondition<T, QK>]
-	| [WhereCondition<T, QK>, LogicalOperator, WhereCondition<T, QK>]
-	| [
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-	  ]
-	| [
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-	  ]
-	| [
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-	  ]
-	| [
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-	  ]
-	| [
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-	  ]
-	| [
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-	  ]
-	| [
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-	  ]
-	| [
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-			LogicalOperator,
-			WhereCondition<T, QK>,
-	  ]
+> = SimpleWhereCondition<T, QK> | ComplexWhereCondition<T, QK>
 
-export const Where = union([WhereCondition, ComplexWhereCondition])
+export type WhereClauseResult = {
+	sql: string
+	params: NodeSqliteValue[]
+	fields: string[]
+}
 
-/**
- * Union type for all possible WHERE clause inputs
- */
+// Type for arrays of conditions joined by logical operators
+type WhereArray<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+> = [
+	SimpleWhereCondition<T, QK> | ComplexWhereCondition<T, QK>,
+	...(
+		| LogicalOperator
+		| SimpleWhereCondition<T, QK>
+		| ComplexWhereCondition<T, QK>
+	)[],
+]
+
+export type ComplexWhereCondition<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+> = WhereArray<T, QK>
+
 export type Where<
 	T extends EntityType,
 	QK extends QueryKeys<T> = QueryKeys<T>,
-> = WhereCondition<T, QK> | ComplexWhereCondition<T, QK>
+> = SimpleWhereCondition<T, QK> | ComplexWhereCondition<T, QK>
 
-// And modify handleSingleCondition to use them both
+// Validation helper functions
+function isComparisonOperator(value: unknown): value is ComparisonOperator {
+	return (
+		typeof value === "string" &&
+		COMPARISON_OPERATORS.includes(value as ComparisonOperator)
+	)
+}
+
+function isLogicalOperator(value: unknown): value is LogicalOperator {
+	return (
+		typeof value === "string" &&
+		LOGICAL_OPERATORS.includes(value as LogicalOperator)
+	)
+}
+
+function isValidFieldName<QK extends QueryKeys<unknown>>(
+	field: unknown,
+	queryKeys: QK
+): field is keyof QK {
+	return typeof field === "string" && field in queryKeys
+}
+
+function validateWhereValue(
+	value: unknown,
+	operator: ComparisonOperator
+): value is LazyDbValue | LazyDbValue[] {
+	if (operator === "IN" || operator === "NOT IN") {
+		return Array.isArray(value) && value.length > 0
+	}
+	if (operator === "IS" || operator === "IS NOT") {
+		return value === null
+	}
+	return value !== undefined && value !== null
+}
+
+function validateSimpleCondition<T extends EntityType, QK extends QueryKeys<T>>(
+	condition: unknown,
+	queryKeys: QK
+): condition is SimpleWhereCondition<T, QK> {
+	if (!Array.isArray(condition) || condition.length !== 3) {
+		return false
+	}
+
+	const [field, operator, value] = condition
+
+	if (!isValidFieldName(field, queryKeys)) {
+		throw new NodeSqliteError(
+			"ERR_SQLITE_WHERE",
+			SqlitePrimaryResultCode.SQLITE_MISUSE,
+			"Invalid field name",
+			`Field "${String(field)}" is not defined in queryKeys`,
+			undefined
+		)
+	}
+
+	if (!isComparisonOperator(operator)) {
+		throw new NodeSqliteError(
+			"ERR_SQLITE_WHERE",
+			SqlitePrimaryResultCode.SQLITE_MISUSE,
+			"Invalid operator",
+			`Operator "${String(operator)}" is not a valid comparison operator`,
+			undefined
+		)
+	}
+
+	if (!validateWhereValue(value, operator)) {
+		throw new NodeSqliteError(
+			"ERR_SQLITE_WHERE",
+			SqlitePrimaryResultCode.SQLITE_MISUSE,
+			"Invalid value",
+			`Invalid value for operator "${operator}"`,
+			undefined
+		)
+	}
+
+	return true
+}
+
+function validateComplexCondition<
+	T extends EntityType,
+	QK extends QueryKeys<T>,
+>(where: unknown[]): where is ComplexWhereCondition<T, QK> {
+	if (where.length < 3 || where.length % 2 === 0) {
+		return false
+	}
+
+	// Check operators at odd indices
+	for (let i = 1; i < where.length; i += 2) {
+		if (!isLogicalOperator(where[i])) {
+			return false
+		}
+	}
+
+	// Check conditions at even indices
+	for (let i = 0; i < where.length; i += 2) {
+		const item = where[i]
+		if (!Array.isArray(item)) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Type guard for simple where conditions
+function isSimpleWhereCondition<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+>(where: BooleanClause<T, QK>): where is SimpleWhereCondition<T, QK> {
+	return (
+		Array.isArray(where) &&
+		where.length === 3 &&
+		typeof where[0] === "string" &&
+		typeof where[1] === "string"
+	)
+}
+
+function handleBooleanClause<
+	T extends EntityType,
+	QK extends QueryKeys<T> = QueryKeys<T>,
+>(clause: BooleanClause<T, QK>, queryKeys: QK): WhereClauseResult {
+	if (isSimpleWhereCondition(clause)) {
+		return handleSingleCondition(clause, queryKeys)
+	}
+	return handleComplexCondition(clause, queryKeys)
+}
+
 function handleSingleCondition<
 	T extends EntityType,
 	QK extends QueryKeys<T> = QueryKeys<T>,
->(
-	where: WhereCondition<T, QK>,
-	queryKeys?: QK
-): WhereClauseResult & { fields: string[] } {
+>(where: SimpleWhereCondition<T, QK>, queryKeys?: QK): WhereClauseResult {
 	const [field, operator, value] = where
 
 	if (!queryKeys || !queryKeys[field]) {
@@ -430,93 +312,98 @@ function handleSingleCondition<
 function handleComplexCondition<
 	T extends EntityType,
 	QK extends QueryKeys<T> = QueryKeys<T>,
->(
-	where: ComplexWhereCondition<T, QK>,
-	queryKeys: QK
-): WhereClauseResult & { fields: string[] } {
+>(where: ComplexWhereCondition<T, QK>, queryKeys: QK): WhereClauseResult {
 	const parts: string[] = []
-	const operators: LogicalOperator[] = []
 	const params: NodeSqliteValue[] = []
 	const fields: string[] = []
 
+	// Handle all elements in the array
 	for (let i = 0; i < where.length; i++) {
 		const item = where[i]
 
+		// If it's an operator (odd indices), skip
 		if (i % 2 === 1) {
-			// Odd indices are operators, store them in sequence
-			operators.push(item as LogicalOperator)
 			continue
 		}
 
-		// Even indices are conditions
-		const condition = item as Where<T, QK>
-		const {
-			sql,
-			params: conditionParams,
-			fields: conditionFields,
-		} = buildWhereClause(condition, queryKeys)
-		parts.push(sql)
-		params.push(...conditionParams)
-		fields.push(...conditionFields)
+		// Handle the condition (even indices)
+		if (Array.isArray(item)) {
+			if (item.length === 3 && typeof item[0] === "string") {
+				// Simple condition
+				const result = handleSingleCondition(
+					item as SimpleWhereCondition<T, QK>,
+					queryKeys
+				)
+				parts.push(result.sql)
+				params.push(...result.params)
+				fields.push(...result.fields)
+			} else {
+				// Nested condition
+				const result = handleBooleanClause(
+					item as BooleanClause<T, QK>,
+					queryKeys
+				)
+				parts.push(result.sql)
+				params.push(...result.params)
+				fields.push(...result.fields)
+			}
+		}
 	}
 
-	// Combine parts with their respective operators
-	const combinedSql = parts.reduce((acc, part, idx) => {
-		if (idx === 0) {
-			return part
-		}
-		return `${acc} ${operators[idx - 1]} ${part}`
-	}, "")
+	// Combine with operators
+	let sql = parts[0]
+	for (let i = 1; i < parts.length; i++) {
+		const operator = where[i * 2 - 1] as LogicalOperator
+		sql += ` ${operator} ${parts[i]}`
+	}
 
 	return {
-		sql: parts.length > 1 ? `(${combinedSql})` : parts[0],
+		sql: parts.length > 1 ? `(${sql})` : sql,
 		params,
 		fields,
 	}
 }
 
-function isWhereCondition<
-	T extends EntityType,
-	QK extends QueryKeys<T> = QueryKeys<T>,
->(where: Where<T, QK>): where is WhereCondition<T, QK> {
-	return (
-		Array.isArray(where) &&
-		where.length === 3 &&
-		typeof where[0] === "string" &&
-		typeof where[1] === "string" // Assuming operator is a string
-	)
-}
-
 export function buildWhereClause<
 	T extends EntityType,
 	QK extends QueryKeys<T> = QueryKeys<T>,
->(
-	where: Where<T, QK>,
-	queryKeys?: QK
-): WhereClauseResult & { fields: string[] } {
-	// If no queryKeys, return empty result since there are no queryable fields
+>(where: Where<T, QK>, queryKeys?: QK): WhereClauseResult {
 	if (!queryKeys) {
-		return {
-			sql: "",
-			params: [],
-			fields: [],
-		}
+		return { sql: "", params: [], fields: [] }
 	}
 
-	// Rest of validation and processing
-	const validationResult = validate(Where, where)
-	if (isValidationErrors(validationResult)) {
+	if (!Array.isArray(where)) {
 		throw new NodeSqliteError(
 			"ERR_SQLITE_WHERE",
 			SqlitePrimaryResultCode.SQLITE_MISUSE,
 			"Invalid where clause",
-			`Where clause validation failed: ${validationResult.map((e) => e.message).join(", ")}`,
+			"Where clause must be an array",
 			undefined
 		)
 	}
 
-	if (isWhereCondition(where)) {
+	if (where.length === 3 && typeof where[0] === "string") {
+		if (!validateSimpleCondition<T, QK>(where, queryKeys)) {
+			throw new NodeSqliteError(
+				"ERR_SQLITE_WHERE",
+				SqlitePrimaryResultCode.SQLITE_MISUSE,
+				"Invalid where clause",
+				"Invalid simple condition structure",
+				undefined
+			)
+		}
 		return handleSingleCondition(where, queryKeys)
 	}
+
+	if (!validateComplexCondition<T, QK>(where)) {
+		throw new NodeSqliteError(
+			"ERR_SQLITE_WHERE",
+			SqlitePrimaryResultCode.SQLITE_MISUSE,
+			"Invalid where clause",
+			"Invalid complex condition structure",
+			undefined
+		)
+	}
+
 	return handleComplexCondition(where, queryKeys)
 }

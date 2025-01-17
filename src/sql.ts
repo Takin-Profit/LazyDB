@@ -14,12 +14,12 @@ import {
 	type QueryKeysSchema,
 	type QueryKeys,
 } from "./types.js"
-import { isValidationErrors } from "./utils.js"
 import {
 	createNestedColumnDefinitions,
 	createNestedIndexDefinitions,
 	extractQueryableValues,
 } from "./paths.js"
+import { isValidationErrs } from "./validate.js"
 
 export function buildCreateTableSQL<T extends EntityType>(
 	name: string,
@@ -32,7 +32,7 @@ export function buildCreateTableSQL<T extends EntityType>(
 	if (queryKeys) {
 		// Validate query keys schema
 		const validationResult = validateQueryKeys({ queryKeys })
-		if (isValidationErrors(validationResult)) {
+		if (isValidationErrs(validationResult)) {
 			throw new NodeSqliteError(
 				"ERR_SQLITE_SCHEMA",
 				SqlitePrimaryResultCode.SQLITE_SCHEMA,
