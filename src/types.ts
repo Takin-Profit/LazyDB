@@ -112,7 +112,7 @@ export function validateQueryKeys(data: unknown): ValidationError[] {
 	return errors
 }
 export type Entity<T extends EntityType> = {
-	_id?: number
+	_id: number
 	createdAt?: string
 	updatedAt?: string
 } & T

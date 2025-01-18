@@ -200,6 +200,9 @@ class LazyDb {
 	readonly #logger?: (message: string) => void
 	readonly #timestampEnabled: boolean
 	readonly #textDecoder = new TextDecoder()
+
+	#intervalId?: NodeJS.Timeout
+
 	readonly #serializer: {
 		encode: (obj: unknown) => Uint8Array
 		decode: (buf: Uint8Array) => unknown
@@ -512,6 +515,10 @@ class LazyDb {
 
 	close(): void {
 		this.#logger?.("Closing database connection")
+		if (this.#intervalId) {
+			this.#logger?.("Clearing cleanup interval")
+			clearInterval(this.#intervalId)
+		}
 		if (this.#statementCache) {
 			this.#logger?.("Clearing statement cache")
 			this.#statementCache.clear()
@@ -672,7 +679,7 @@ class LazyDb {
 		}
 		const interval = parseTimeString(cleanupInterval as TimeString)
 
-		setInterval(() => {
+		this.#intervalId = setInterval(() => {
 			try {
 				const tables = this.#getAllTableNames()
 				for (const table of tables) {

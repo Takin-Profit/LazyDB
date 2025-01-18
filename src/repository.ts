@@ -225,15 +225,15 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 		return result.length > 0 ? result[0] : null
 	}
 
-	insert(entity: T, options?: { ttl?: TimeString }): Entity<T> {
+	insert(entity: T, options?: { ttl: TimeString }): Entity<T> {
 		try {
 			this.#logger?.(`Inserting entity into ${this.#name}`)
 
-			let expiresAt: number | undefined
+			let ttl: number | undefined
 
 			if (options?.ttl) {
 				const ttlMs = parseTimeString(options.ttl)
-				expiresAt = Date.now() + ttlMs
+				ttl = Date.now() + ttlMs
 			}
 
 			const serializedData = this.#serializer.encode(entity)
@@ -243,7 +243,8 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 				this.#name,
 				entity,
 				this.#queryKeys,
-				this.#timestamps
+				this.#timestamps,
+				ttl
 			)
 
 			this.#logger?.(`Executing query: ${sql} with values: ${values}`)
@@ -298,7 +299,7 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 	 * @returns An array of inserted entities with their IDs and timestamps
 	 * @throws {NodeSqliteError} If the insertion fails
 	 */
-	insertMany(entities: T[]): Entity<T>[] {
+	insertMany(entities: T[], options?: { ttl: TimeString }): Entity<T>[] {
 		if (!entities.length) {
 			return []
 		}
@@ -309,13 +310,21 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 			// Start a transaction
 			this.#db.exec("BEGIN TRANSACTION")
 
+			let ttl: number | undefined
+
+			if (options?.ttl) {
+				const ttlMs = parseTimeString(options.ttl)
+				ttl = Date.now() + ttlMs
+			}
+
 			try {
 				// Build the insert query using the new helper function
 				const { sql, values } = buildInsertManyQuery(
 					this.#name,
 					entities,
 					this.#queryKeys,
-					this.#timestamps
+					this.#timestamps,
+					ttl
 				)
 
 				// Prepare the statement once for reuse
