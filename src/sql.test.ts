@@ -334,7 +334,7 @@ test("buildCreateTableSQL", async (t) => {
 		const sql = buildCreateTableSQL("test_table")
 		assert.strictEqual(
 			sql,
-			"CREATE TABLE IF NOT EXISTS test_table (_id INTEGER PRIMARY KEY AUTOINCREMENT, __lazy_data BLOB)"
+			"CREATE TABLE IF NOT EXISTS test_table (_id INTEGER PRIMARY KEY AUTOINCREMENT, __lazy_data BLOB, __expires_at INTEGER)"
 		)
 	})
 
@@ -352,12 +352,7 @@ test("buildCreateTableSQL", async (t) => {
 		const sql = buildCreateTableSQL("test_table", queryKeys)
 		assert.strictEqual(
 			sql,
-			"CREATE TABLE IF NOT EXISTS test_table " +
-				"(_id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-				"name TEXT NOT NULL, " +
-				"age INTEGER NOT NULL, " +
-				"active BOOLEAN NOT NULL, " +
-				"__lazy_data BLOB)"
+			"CREATE TABLE IF NOT EXISTS test_table (_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, age INTEGER NOT NULL, active BOOLEAN NOT NULL, __lazy_data BLOB, __expires_at INTEGER)"
 		)
 	})
 
@@ -411,56 +406,57 @@ test("buildCreateTableSQL", async (t) => {
 test("createIndexes", async (t) => {
 	await t.test("creates basic indexes", () => {
 		const queryKeys = {
-			field1: { type: "TEXT" },
-			field2: { type: "INTEGER" },
-		}
-
-		const statements = createIndexes<{ field1: string; field2: number }>(
+			name: { type: "TEXT" },
+			age: { type: "INTEGER" },
+		} as const
+		const indexes = createIndexes(
 			"test_table",
-			queryKeys as QueryKeysSchema<{ field1: string; field2: number }>
+			queryKeys as QueryKeysSchema<unknown>
 		)
-
-		assert.strictEqual(statements.length, 2)
+		assert.equal(indexes.length, 3) // Updated to include expires_at index
 		assert.ok(
-			statements[0].includes("CREATE INDEX IF NOT EXISTS idx_test_table_field1")
+			indexes.includes(
+				"CREATE INDEX IF NOT EXISTS idx_test_table_name ON test_table(name)"
+			)
 		)
 		assert.ok(
-			statements[1].includes("CREATE INDEX IF NOT EXISTS idx_test_table_field2")
+			indexes.includes(
+				"CREATE INDEX IF NOT EXISTS idx_test_table_age ON test_table(age)"
+			)
+		)
+		assert.ok(
+			indexes.includes(
+				"CREATE INDEX IF NOT EXISTS idx_test_table_expires_at ON test_table(__expires_at)"
+			)
 		)
 	})
 
 	await t.test("creates unique indexes", () => {
-		const queryKeys = {
+		const queryKeys: QueryKeysSchema<unknown> = {
 			email: { type: "TEXT", unique: true },
 			username: { type: "TEXT", unique: true },
-			name: { type: "TEXT" },
+			age: { type: "INTEGER" },
 		}
-
-		const statements = createIndexes(
-			"test_table",
-			queryKeys as QueryKeysSchema<{
-				email: string
-				username: string
-				name: string
-			}>
-		)
-		assert.strictEqual(statements.length, 3)
+		const indexes = createIndexes("test_table", queryKeys)
+		assert.equal(indexes.length, 4) // Updated to include expires_at index
 		assert.ok(
-			statements.some(
-				(sql) => sql.includes("CREATE UNIQUE INDEX") && sql.includes("email")
+			indexes.includes(
+				"CREATE UNIQUE INDEX IF NOT EXISTS idx_test_table_email ON test_table(email)"
 			)
 		)
 		assert.ok(
-			statements.some(
-				(sql) => sql.includes("CREATE UNIQUE INDEX") && sql.includes("username")
+			indexes.includes(
+				"CREATE UNIQUE INDEX IF NOT EXISTS idx_test_table_username ON test_table(username)"
 			)
 		)
 		assert.ok(
-			statements.some(
-				(sql) =>
-					sql.includes("CREATE INDEX") &&
-					!sql.includes("UNIQUE") &&
-					sql.includes("name")
+			indexes.includes(
+				"CREATE INDEX IF NOT EXISTS idx_test_table_age ON test_table(age)"
+			)
+		)
+		assert.ok(
+			indexes.includes(
+				"CREATE INDEX IF NOT EXISTS idx_test_table_expires_at ON test_table(__expires_at)"
 			)
 		)
 	})
@@ -490,21 +486,17 @@ test("buildCreateTableSQL validations", async (t) => {
 	})
 
 	await t.test("validates index creation SQL", () => {
-		const tableName = "test_table"
-		const queryKeys = {
-			field1: { type: "TEXT", unique: true },
+		const queryKeys: QueryKeysSchema<unknown> = {
+			field1: { type: "TEXT" },
 			field2: { type: "INTEGER" },
 		}
-
-		const statements = createIndexes(
-			tableName,
-			queryKeys as QueryKeysSchema<{ field1: string; field2: number }>
-		)
-		assert.strictEqual(statements.length, 2)
-		assert.ok(statements[0].includes("field1"))
-		assert.ok(statements[0].includes("UNIQUE"))
-		assert.ok(statements[1].includes("field2"))
-		assert.ok(!statements[1].includes("UNIQUE"))
+		const indexes = createIndexes("test_table", queryKeys)
+		assert.equal(indexes.length, 3) // Updated to include expires_at index
+		for (const sql of indexes) {
+			assert.ok(sql.startsWith("CREATE"))
+			assert.ok(sql.includes("INDEX"))
+			assert.ok(sql.includes("test_table"))
+		}
 	})
 
 	await t.test(

@@ -188,13 +188,19 @@ export function buildInsertQuery<T extends Record<string, unknown> | object>(
 	tableName: string,
 	entity: T,
 	queryKeys?: QueryKeys<T>,
-	timestamps = false
+	timestamps = false,
+	ttl?: number
 ): InsertQueryResult {
 	const columns: string[] = []
 	const values: SupportedValueType[] = []
 	const placeholders: string[] = []
 
 	const ignorableFields = ["_id", "createdAt", "updatedAt"]
+	if (ttl) {
+		columns.push("__expires_at")
+		values.push(ttl)
+		placeholders.push("?")
+	}
 	if (queryKeys) {
 		// Add queryable fields if they exist
 		for (const [field, def] of Object.entries(queryKeys)) {
@@ -250,7 +256,8 @@ export function buildInsertManyQuery<T extends EntityType>(
 	tableName: string,
 	entities: T[],
 	queryKeys?: QueryKeys<T>,
-	timestamps = false
+	timestamps = false,
+	ttl?: number
 ): InsertManyQueryResult {
 	if (!entities.length) {
 		return { sql: "", values: [] }
@@ -259,7 +266,7 @@ export function buildInsertManyQuery<T extends EntityType>(
 	const columns: string[] = []
 	const values: SupportedValueType[][] = []
 	const placeholders: string[] = []
-	const ignorableFields = ["_id", "createdAt", "updatedAt"]
+	const ignorableFields = ["_id", "createdAt", "updatedAt", "__expires_at"]
 
 	// Build column list from first entity and query keys
 	if (queryKeys) {
@@ -269,7 +276,6 @@ export function buildInsertManyQuery<T extends EntityType>(
 			}
 
 			if (isQueryKeyDef(def)) {
-				// Replace dots with underscores for nested fields
 				const columnName = field.replace(/\./g, "_")
 				columns.push(columnName)
 				placeholders.push("?")
@@ -277,20 +283,29 @@ export function buildInsertManyQuery<T extends EntityType>(
 		}
 	}
 
-	// Add the serialized data placeholder
+	// Keep the expiration and lazy_data columns at the end
+	let expiresAtIndex: number | undefined
+	if (ttl) {
+		columns.push("__expires_at")
+		placeholders.push("?")
+		expiresAtIndex = columns.length - 1
+	}
+
+	// Add the serialized data placeholder last
 	columns.push("__lazy_data")
 	placeholders.push("?")
+	const lazyDataIndex = columns.length - 1
 
-	// Build the base SQL query
 	const sql = `INSERT INTO ${tableName} (${columns.join(", ")})
                VALUES (${placeholders.join(", ")})
                ${buildReturningClause(timestamps)}`
 
 	// Build values array for each entity
 	for (const entity of entities) {
-		const entityValues: SupportedValueType[] = []
+		const entityValues: SupportedValueType[] = Array(columns.length) // Pre-allocate array
 
 		if (queryKeys) {
+			let valueIndex = 0
 			for (const [field, def] of Object.entries(queryKeys)) {
 				if (ignorableFields.includes(field)) {
 					continue
@@ -304,14 +319,24 @@ export function buildInsertManyQuery<T extends EntityType>(
 					}
 
 					if (field in entity || value !== undefined) {
-						entityValues.push(toSqliteValue(value as LazyDbValue, def.type))
+						entityValues[valueIndex] = toSqliteValue(
+							value as LazyDbValue,
+							def.type
+						)
 					}
+					valueIndex++
 				}
 			}
 		}
 
-		// Add placeholder for __lazy_data (will be filled in during execution)
-		entityValues.push(new Uint8Array())
+		// Add expiration value if TTL is provided
+		if (expiresAtIndex !== undefined) {
+			entityValues[expiresAtIndex] = ttl as SupportedValueType
+		}
+
+		// Add placeholder for __lazy_data at the exact index
+		entityValues[lazyDataIndex] = new Uint8Array()
+
 		values.push(entityValues)
 	}
 
