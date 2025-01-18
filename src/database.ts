@@ -34,7 +34,7 @@ import { isValidationErrs } from "./validate.js"
 import { parseTimeString } from "./ttl.js"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { rename, renameSync, unlink, unlinkSync } from "node:fs"
+import { accessSync, renameSync, unlinkSync } from "node:fs"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -563,6 +563,11 @@ class LazyDb {
 	 * Restores database from a backup file using SQLite's ATTACH DATABASE.
 	 */
 
+	// In database.ts
+
+	/**
+	 * Restores database from a backup file
+	 */
 	restore(filename: string): void {
 		try {
 			this.#logger?.(`Starting database restore from ${filename}`)
@@ -578,26 +583,78 @@ class LazyDb {
 				)
 			}
 
-			// Close existing database connection
+			try {
+				accessSync(filename)
+			} catch (error) {
+				throw new NodeSqliteError(
+					"ERR_SQLITE_CANTOPEN",
+					SqlitePrimaryResultCode.SQLITE_CANTOPEN,
+					"Cannot open backup file",
+					`Failed to restore from ${filename}. File may not exist or be inaccessible.`,
+					error instanceof Error ? error : undefined
+				)
+			}
+
+			// Close existing database connection first
 			this.close()
 
-			// Move current database to temp backup (in case restore fails)
+			// Create a temporary backup of current DB (in case restore fails)
 			const tempBackup = join(tmpdir(), `temp-${Date.now()}.db`)
-			renameSync(this.#location, tempBackup)
 
 			try {
-				// Move new database into place
+				// Move current DB to temp backup
+				renameSync(this.#location, tempBackup)
+
+				// Move backup into place
 				renameSync(filename, this.#location)
 
 				// Open new database
 				this.#db = new DatabaseSync(this.#location, { open: true })
 
-				// Success - remove temp backup
-				unlinkSync(tempBackup)
+				// Verify database integrity
+				const integrityCheck = this.#db
+					.prepare("PRAGMA integrity_check;")
+					.get() as { integrity_check: string }
+				if (integrityCheck.integrity_check !== "ok") {
+					throw new Error("Database integrity check failed after restore")
+				}
+
+				// Verify schema exists
+				const schemaCheck = this.#db
+					.prepare("SELECT count(*) as count FROM sqlite_master;")
+					.get() as { count: number }
+				if (schemaCheck.count === 0) {
+					throw new Error("Restored database appears to be empty")
+				}
+
+				// Remove temp backup on success
+				try {
+					unlinkSync(tempBackup)
+				} catch (error) {
+					// Log but don't fail if temp cleanup fails
+					this.#logger?.(
+						`Warning: Failed to remove temp backup ${tempBackup}: ${error}`
+					)
+				}
 			} catch (error) {
 				// Restore failed - put original back
-				renameSync(tempBackup, this.#location)
-				this.#db = new DatabaseSync(this.#location, { open: true })
+				this.#logger?.("Restore failed, rolling back to original database")
+				try {
+					if (this.#db) {
+						this.#db.close()
+					}
+					renameSync(tempBackup, this.#location)
+					this.#db = new DatabaseSync(this.#location, { open: true })
+				} catch (rollbackError) {
+					// If rollback fails, we're in real trouble
+					throw new NodeSqliteError(
+						"ERR_SQLITE_RESTORE",
+						SqlitePrimaryResultCode.SQLITE_ERROR,
+						"Restore and rollback both failed",
+						`Failed to restore database and rollback failed: ${rollbackError}`,
+						rollbackError instanceof Error ? rollbackError : undefined
+					)
+				}
 				throw error
 			}
 

@@ -1,4 +1,4 @@
-/* import { test, beforeEach, afterEach } from "node:test"
+import { test, beforeEach, afterEach } from "node:test"
 import assert from "node:assert"
 import { rm, accessSync, rmSync } from "node:fs"
 import { join } from "node:path"
@@ -9,7 +9,6 @@ import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
 import type { Repository } from "./repository.js"
 import type { SystemQueryKeys } from "./types.js"
 import { buildInsertQuery } from "./sql.js"
-import { extractQueryableValues } from "./paths.js"
 
 interface TestEntity {
 	name: string
@@ -85,7 +84,7 @@ test("_clearExpiredData - handles tables with no expired data", () => {
 	assert.equal(found.name, "test")
 })
 
-test("_clearExpiredData - handles empty tables", () => {
+test("clearExpiredData - handles empty tables", () => {
 	const _ = db.repository<TestEntity>("empty").create({
 		queryKeys: testEntityKeys,
 	})
@@ -230,7 +229,9 @@ test("restore - throws on in-memory database", () => {
 
 test("restore - handles multiple tables and constraints", () => {
 	// Skip for in-memory databases
-	if (dbPath === ":memory:") return
+	if (dbPath === ":memory:") {
+		return
+	}
 
 	const mainRepo = db.repository<TestEntity>("main").create({
 		queryKeys: {
@@ -279,13 +280,15 @@ test("restore - handles multiple tables and constraints", () => {
 		queryKeys: secondKeys,
 	})
 
-	// Test unique constraint
+	// Verify unique constraint by checking for SQLite error code
 	try {
 		restoredMain.insert({ name: "unique", value: 2 })
 		assert.fail("Expected insert to fail with unique constraint violation")
 	} catch (error) {
-		assert.ok(error instanceof NodeSqliteError)
-		assert.ok(error.message.includes("UNIQUE constraint"))
+		assert.ok(error instanceof Error)
+		assert.ok("errcode" in error)
+		// SQLite error code for UNIQUE constraint violation is 2067
+		assert.equal((error as { errcode: number }).errcode, 2067)
 	}
 
 	// Test querying
@@ -295,4 +298,3 @@ test("restore - handles multiple tables and constraints", () => {
 	assert.ok(secondEntry)
 	assert.equal(secondEntry.name, "second")
 })
- */
