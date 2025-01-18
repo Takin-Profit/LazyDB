@@ -8,6 +8,7 @@ import LazyDb from "./database.js"
 import type { Repository } from "./repository.js"
 import type { SystemQueryKeys } from "./types.js"
 import type { DatabaseOptions } from "./types.js"
+import { buildInsertQuery } from "./sql.js"
 
 // 1) Define a minimal test entity schema
 interface ExtendedEntity {
@@ -190,4 +191,161 @@ test("update on nonexistent row returns null", () => {
 		{ title: "nope" }
 	)
 	assert.equal(updated, null)
+})
+
+interface NestedEntity {
+	name: string
+	metadata: {
+		value: number
+		flag: boolean
+	}
+	optionalNested?: {
+		tag: string
+	}
+}
+
+const nestedQueryKeys = {
+	name: { type: "TEXT" as const },
+	"metadata.value": { type: "INTEGER" as const },
+	"metadata.flag": { type: "BOOLEAN" as const },
+	"optionalNested.tag": { type: "TEXT" as const, nullable: true },
+} as const
+
+test("debug insert with nested paths", () => {
+	interface TestNested {
+		name: string
+		metadata: {
+			value: number
+			flag: boolean
+		}
+	}
+
+	const queryKeys = {
+		name: { type: "TEXT" as const },
+		"metadata.value": { type: "INTEGER" as const },
+		"metadata.flag": { type: "BOOLEAN" as const },
+	}
+
+	const nestedRepo = db.repository<TestNested>("nested_test").create({
+		queryKeys,
+	})
+
+	const entity = {
+		name: "test",
+		metadata: { value: 42, flag: true },
+	}
+
+	// Log every step
+	const { sql, values } = buildInsertQuery(
+		"nested_test",
+		entity,
+		queryKeys,
+		false
+	)
+	console.log("\nDebug Insert:", {
+		sql,
+		values,
+		placeholdersInSQL: (sql.match(/\?/g) || []).length,
+		providedValues: values.length,
+		entityJSON: JSON.stringify(entity),
+	})
+
+	const inserted = nestedRepo.insert(entity)
+
+	assert.equal(inserted.name, "test")
+	assert.equal(inserted.metadata.value, 42)
+	assert.equal(inserted.metadata.flag, true)
+})
+
+test("inserts entity with missing optional nested path", () => {
+	const nestedRepo = db.repository<NestedEntity>("nested").create({
+		queryKeys: nestedQueryKeys,
+	})
+
+	const entity = {
+		name: "test",
+		metadata: { value: 42, flag: true },
+		// optionalNested is omitted
+	}
+
+	const inserted = nestedRepo.insert(entity)
+	assert.equal(inserted.name, "test")
+	assert.equal(inserted.metadata.value, 42)
+	assert.equal(inserted.metadata.flag, true)
+	assert.equal(inserted.optionalNested, undefined)
+
+	// Verify we can retrieve it
+	const found = nestedRepo.findById(inserted._id)
+	assert.deepEqual(found, inserted)
+})
+
+test("inserts and retrieves complex nested structure", () => {
+	interface DeepNested {
+		top: {
+			middle: {
+				bottom: {
+					value: number
+				}
+				sibling: boolean
+			}
+			other: string
+		}
+	}
+
+	const deepKeys = {
+		"top.middle.bottom.value": { type: "INTEGER" as const },
+		"top.middle.sibling": { type: "BOOLEAN" as const },
+		"top.other": { type: "TEXT" as const },
+	}
+
+	const deepRepo = db.repository<DeepNested>("deep").create({
+		queryKeys: deepKeys,
+	})
+
+	const entity: DeepNested = {
+		top: {
+			middle: {
+				bottom: { value: 42 },
+				sibling: true,
+			},
+			other: "test",
+		},
+	}
+
+	const inserted = deepRepo.insert(entity)
+	assert.equal(inserted.top.middle.bottom.value, 42)
+	assert.equal(inserted.top.middle.sibling, true)
+	assert.equal(inserted.top.other, "test")
+
+	const found = deepRepo.findById(inserted._id)
+	assert.deepEqual(found, inserted)
+})
+
+test("handles null values in nested paths", () => {
+	interface NullableNested {
+		required: {
+			value: number
+		}
+		optional?: {
+			value?: number | null
+		}
+	}
+
+	const nullableKeys = {
+		"required.value": { type: "INTEGER" as const },
+		"optional.value": { type: "INTEGER" as const, nullable: true },
+	}
+
+	const nullableRepo = db.repository<NullableNested>("nullable").create({
+		queryKeys: nullableKeys,
+	})
+
+	const entity: NullableNested = {
+		required: { value: 42 },
+		optional: { value: null },
+	}
+
+	const inserted = nullableRepo.insert(entity)
+	assert.equal(inserted.required.value, 42)
+	assert.equal(inserted.optional?.value, null)
 })

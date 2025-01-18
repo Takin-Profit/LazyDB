@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 import { describe, it } from "node:test"
-import { buildInsertManyQuery } from "./sql.js"
+import { buildInsertManyQuery, buildInsertQuery } from "./sql.js"
 import assert from "node:assert"
 import type { QueryKeysSchema } from "./types.js"
 
@@ -233,5 +233,70 @@ describe("buildInsertManyQuery", () => {
 		assert.equal(values[0].length, 2) // name + __lazy_data
 		assert.equal(values[0][0], "test") // First value should be the name
 		assert(values[0][1] instanceof Uint8Array) // Second value should be __lazy_data placeholder
+	})
+
+	it("handles nested paths in queryKeys", () => {
+		const queryKeys = {
+			name: { type: "TEXT" as const },
+			"metadata.value": { type: "INTEGER" as const },
+			"metadata.flag": { type: "BOOLEAN" as const },
+		}
+
+		const entity = {
+			name: "test",
+			metadata: { value: 42, flag: true },
+		}
+
+		const { sql, values } = buildInsertQuery(
+			"test_table",
+			entity,
+			queryKeys,
+			false
+		)
+
+		// Check column order matches value order
+		assert.match(
+			sql,
+			/INSERT INTO test_table \(name, metadata_value, metadata_flag, __lazy_data\)/
+		)
+		assert.equal(values.length, 3)
+		assert.equal(values[0], "test")
+		assert.equal(values[1], 42)
+		assert.equal(values[2], 1) // true converted to 1
+	})
+
+	it("maintains order consistency between columns and values", () => {
+		const queryKeys = {
+			name: { type: "TEXT" as const },
+			regular: { type: "INTEGER" as const },
+			"metadata.nested": { type: "BOOLEAN" as const },
+		}
+
+		const entity = {
+			name: "test",
+			regular: 123,
+			metadata: { nested: true },
+		}
+
+		const { sql, values } = buildInsertQuery(
+			"test_table",
+			entity,
+			queryKeys,
+			false
+		)
+
+		const columnMatch = sql.match(/\((.*?)\)/)?.[1].split(/, /)
+		assert.ok(columnMatch)
+
+		// Remove __lazy_data from columns since it doesn't have a corresponding value
+		const dataColumns = columnMatch.filter((col) => col !== "__lazy_data")
+
+		// Verify value for each column
+		assert.equal(values[0], "test", "name value mismatch")
+		assert.equal(values[1], 123, "regular value mismatch")
+		assert.equal(values[2], 1, "metadata.nested value mismatch")
+
+		// Verify order
+		assert.deepEqual(dataColumns, ["name", "regular", "metadata_nested"])
 	})
 })

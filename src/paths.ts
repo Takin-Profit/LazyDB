@@ -3,7 +3,12 @@
 // license that can be found in the LICENSE file.
 
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
-import { isQueryKeyDef, type EntityType, type QueryKeys } from "./types.js"
+import {
+	isQueryKeyDef,
+	type LazyDbColumnType,
+	type EntityType,
+	type QueryKeys,
+} from "./types.js"
 
 /**
  * Gets a value from a nested object using dot notation
@@ -75,12 +80,12 @@ export function pathToColumnName(path: string): string {
 export function extractQueryableValues<T extends EntityType>(
 	entity: T,
 	queryKeys: QueryKeys<T>
-): Record<string, unknown> {
-	const result: Record<string, unknown> = {}
+): Record<string, { value: unknown; type: LazyDbColumnType }> {
+	const result: Record<string, { value: unknown; type: LazyDbColumnType }> = {}
 
 	for (const [path, def] of Object.entries(queryKeys)) {
-		if (!path.includes(".")) {
-			continue // Skip non-nested paths
+		if (!path.includes(".") || !isQueryKeyDef(def)) {
+			continue
 		}
 
 		const value = getNestedValue(entity, path)
@@ -94,7 +99,10 @@ export function extractQueryableValues<T extends EntityType>(
 			)
 		}
 
-		result[pathToColumnName(path)] = value
+		result[pathToColumnName(path)] = {
+			value,
+			type: def.type,
+		}
 	}
 
 	return result

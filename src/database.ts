@@ -32,6 +32,9 @@ import type stringifyLib from "fast-safe-stringify"
 import { buildCreateTableSQL, createIndexes } from "./sql.js"
 import { isValidationErrs } from "./validate.js"
 import { parseTimeString } from "./ttl.js"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import { rename, renameSync, unlink, unlinkSync } from "node:fs"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -87,8 +90,9 @@ const createRepositoryFactory = <T extends EntityType>(
 			queryKeys?: QueryKeysSchema<T> // Force literal type checking
 		}
 	) {
+		const timestampsEnabled = props.timestampEnabled ?? options?.timestamps
 		props.logger?.(
-			`Creating repository: ${props.name}, timestamps enabled: ${props.timestampEnabled}`
+			`Creating repository: ${props.name}, timestamps enabled: ${timestampsEnabled}`
 		)
 
 		const result = validateRepositoryOptions(options, false)
@@ -124,8 +128,6 @@ const createRepositoryFactory = <T extends EntityType>(
 				"updatedAt",
 			]
 
-			if (props.timestampEnabled) {
-			}
 			const invalidFields = Object.keys(options.queryKeys).filter((key) =>
 				systemFields.includes(key)
 			)
@@ -142,7 +144,7 @@ const createRepositoryFactory = <T extends EntityType>(
 
 			const systemQueryKeys: SystemQueryKeys = {
 				_id: { type: "INTEGER" },
-				...(props.timestampEnabled
+				...(timestampsEnabled
 					? {
 							createdAt: { type: "TEXT" },
 							updatedAt: { type: "TEXT" },
@@ -160,7 +162,7 @@ const createRepositoryFactory = <T extends EntityType>(
 		const createTableSQL = buildCreateTableSQL(
 			props.name,
 			extendedQueryKeys,
-			options?.timestamps ?? props.timestampEnabled
+			timestampsEnabled
 		)
 
 		try {
@@ -176,7 +178,7 @@ const createRepositoryFactory = <T extends EntityType>(
 			return new Repository<T, K & SystemQueryKeys>({
 				prepareStatement: props.prepareStatement,
 				serializer: props.serializer,
-				timestamps: props.timestampEnabled,
+				timestamps: timestampsEnabled,
 				queryKeys: extendedQueryKeys as K & SystemQueryKeys,
 				logger: options?.logger ?? props.logger,
 				name: props.name,
@@ -196,10 +198,11 @@ const createRepositoryFactory = <T extends EntityType>(
 })
 
 class LazyDb {
-	readonly #db: DatabaseSync
-	readonly #logger?: (message: string) => void
+	readonly #logger?: (message?: string) => void
 	readonly #timestampEnabled: boolean
 	readonly #textDecoder = new TextDecoder()
+	readonly #location: string
+	#db: DatabaseSync
 
 	#intervalId?: NodeJS.Timeout
 
@@ -211,6 +214,7 @@ class LazyDb {
 
 	constructor(options: DatabaseOptions = { location: ":memory:" }) {
 		try {
+			this.#location = options.location
 			this.#logger = options.logger
 			this.#logger?.(`Opening database at ${options.location}`)
 
@@ -293,13 +297,13 @@ class LazyDb {
 			db: this.#db,
 			logger: this.#logger,
 			name,
-			prepareStatement: this.#prepareStatement.bind(this),
+			prepareStatement: this.prepareStatement.bind(this),
 			serializer: this.#serializer,
 			timestampEnabled: this.#timestampEnabled ?? true,
 		})
 	}
 
-	#prepareStatement(sql: string): StatementSync {
+	prepareStatement(sql: string): StatementSync {
 		try {
 			// If cache is enabled, check for cached statement
 			if (this.#statementCache) {
@@ -536,126 +540,102 @@ class LazyDb {
 			this.#db.exec(`VACUUM INTO '${filename}'`)
 			this.#logger?.("Database backup completed successfully")
 		} catch (error) {
-			this.#logger?.(
-				`Backup failed: ${error instanceof Error ? error.message : String(error)}`
-			)
-			if (isNodeSqliteError(error)) {
-				if (
-					error.getPrimaryResultCode() ===
-					SqlitePrimaryResultCode.SQLITE_CANTOPEN
-				) {
-					throw new NodeSqliteError(
-						"ERR_SQLITE_BACKUP",
-						SqlitePrimaryResultCode.SQLITE_CANTOPEN,
-						"Cannot create backup file",
-						`Failed to create backup at ${filename}. Check permissions and ensure directory exists.`,
-						error
-					)
-				}
-				throw error
-			}
-			throw NodeSqliteError.fromNodeSqlite(
+			const sqliteError = NodeSqliteError.fromNodeSqlite(
 				error instanceof Error ? error : new Error(String(error))
 			)
+			if (
+				sqliteError.getPrimaryResultCode() ===
+				SqlitePrimaryResultCode.SQLITE_CANTOPEN
+			) {
+				throw new NodeSqliteError(
+					"ERR_SQLITE_BACKUP",
+					SqlitePrimaryResultCode.SQLITE_CANTOPEN,
+					"Cannot create backup file",
+					`Failed to create backup at ${filename}. Check permissions and ensure directory exists.`,
+					error instanceof Error ? error : undefined
+				)
+			}
+			throw sqliteError
 		}
 	}
 
 	/**
 	 * Restores database from a backup file using SQLite's ATTACH DATABASE.
 	 */
+
 	restore(filename: string): void {
 		try {
 			this.#logger?.(`Starting database restore from ${filename}`)
-			this.#db.exec("BEGIN TRANSACTION")
+
+			// Don't try to restore for in-memory databases
+			if (this.#location === ":memory:") {
+				throw new NodeSqliteError(
+					"ERR_SQLITE_RESTORE",
+					SqlitePrimaryResultCode.SQLITE_MISUSE,
+					"Cannot restore in-memory database",
+					"Restore operation is not supported for in-memory databases",
+					undefined
+				)
+			}
+
+			// Close existing database connection
+			this.close()
+
+			// Move current database to temp backup (in case restore fails)
+			const tempBackup = join(tmpdir(), `temp-${Date.now()}.db`)
+			renameSync(this.#location, tempBackup)
 
 			try {
-				this.#logger?.("Attaching backup database")
-				this.#db.exec(`ATTACH DATABASE '${filename}' AS backup`)
+				// Move new database into place
+				renameSync(filename, this.#location)
 
-				this.#logger?.("Querying tables from backup")
-				const tables = this.#db
-					.prepare("SELECT name FROM backup.sqlite_master WHERE type='table'")
-					.all() as { name: string }[]
-				this.#logger?.(`Found ${tables.length} tables to restore`)
+				// Open new database
+				this.#db = new DatabaseSync(this.#location, { open: true })
 
-				for (const { name } of tables) {
-					if (name !== "sqlite_sequence") {
-						this.#logger?.(`Restoring table: ${name}`)
-						this.#db.exec(`DELETE FROM main.${name}`)
-						this.#db.exec(
-							`INSERT INTO main.${name} SELECT * FROM backup.${name}`
-						)
-					}
-				}
-
-				this.#logger?.("Detaching backup database")
-				this.#db.exec("DETACH DATABASE backup")
-
-				this.#logger?.("Committing transaction")
-				this.#db.exec("COMMIT")
-
-				if (this.#statementCache) {
-					this.#logger?.("Clearing statement cache")
-					this.#statementCache.clear()
-				}
-
-				this.#logger?.("Database restore completed successfully")
+				// Success - remove temp backup
+				unlinkSync(tempBackup)
 			} catch (error) {
-				this.#logger?.(
-					`Restore failed, rolling back: ${error instanceof Error ? error.message : String(error)}`
+				// Restore failed - put original back
+				renameSync(tempBackup, this.#location)
+				this.#db = new DatabaseSync(this.#location, { open: true })
+				throw error
+			}
+
+			this.#logger?.("Database restore completed successfully")
+		} catch (error) {
+			if (error instanceof Error && error.message.includes("ENOENT")) {
+				throw new NodeSqliteError(
+					"ERR_SQLITE_CANTOPEN",
+					SqlitePrimaryResultCode.SQLITE_CANTOPEN,
+					"Cannot open backup file",
+					`Failed to restore from ${filename}. File may not exist or be inaccessible.`,
+					error
 				)
-				this.#db.exec("ROLLBACK")
-				throw error
 			}
-		} catch (error) {
-			this.#logger?.(
-				`Database restore operation failed: ${error instanceof Error ? error.message : String(error)}`
-			)
-			if (isNodeSqliteError(error)) {
-				if (
-					error.getPrimaryResultCode() ===
-					SqlitePrimaryResultCode.SQLITE_CANTOPEN
-				) {
-					throw new NodeSqliteError(
-						"ERR_SQLITE_RESTORE",
-						SqlitePrimaryResultCode.SQLITE_CANTOPEN,
-						"Cannot open backup file",
-						`Failed to restore from ${filename}. Ensure file exists and is readable.`,
-						error
+			throw error instanceof NodeSqliteError
+				? error
+				: NodeSqliteError.fromNodeSqlite(
+						error instanceof Error ? error : new Error(String(error))
 					)
-				}
-				if (
-					error.getPrimaryResultCode() === SqlitePrimaryResultCode.SQLITE_NOTADB
-				) {
-					throw new NodeSqliteError(
-						"ERR_SQLITE_RESTORE",
-						SqlitePrimaryResultCode.SQLITE_NOTADB,
-						"Invalid backup file",
-						`File ${filename} is not a valid SQLite database.`,
-						error
-					)
-				}
-				throw error
-			}
-			throw NodeSqliteError.fromNodeSqlite(
-				error instanceof Error ? error : new Error(String(error))
-			)
 		}
 	}
 
-	#getAllTableNames(): string[] {
+	clearExpired(): void {
 		const sql = `SELECT name FROM sqlite_master
-                 WHERE type='table'
-                 AND name NOT IN ('sqlite_sequence', 'sqlite_stat1')`
-
+               WHERE type='table'
+               AND name NOT IN ('sqlite_sequence', 'sqlite_stat1')`
 		try {
-			const stmt = this.#prepareStatement(sql)
-			const results = stmt.all() as Array<{ name: string }>
-			return results.map((r) => r.name)
+			const stmt = this.prepareStatement(sql)
+			const tables = stmt.all() as Array<{ name: string }>
+			for (const { name } of tables) {
+				// Destructure name from table object
+				this.prepareStatement(
+					`DELETE FROM ${name}
+         WHERE __expires_at IS NOT NULL
+         AND __expires_at < ?`
+				).run(Date.now())
+			}
 		} catch (error) {
-			this.#logger?.(
-				`Failed to get table names: ${error instanceof Error ? error.message : String(error)}`
-			)
 			if (isNodeSqliteError(error)) {
 				throw error
 			}
@@ -663,14 +643,6 @@ class LazyDb {
 				error instanceof Error ? error : new Error(String(error))
 			)
 		}
-	}
-
-	#cleanExpiredData(tableName: string): void {
-		const sql = `DELETE FROM ${tableName}
-               WHERE __expires_at IS NOT NULL
-               AND __expires_at < ?`
-		const currentTime = Date.now()
-		this.#prepareStatement(sql).run(currentTime)
 	}
 
 	#startCleanupInterval(cleanupInterval?: TimeString): void {
@@ -681,10 +653,7 @@ class LazyDb {
 
 		this.#intervalId = setInterval(() => {
 			try {
-				const tables = this.#getAllTableNames()
-				for (const table of tables) {
-					this.#cleanExpiredData(table)
-				}
+				this.clearExpired()
 				this.#logger?.("Cleanup of expired data completed")
 			} catch (error) {
 				this.#logger?.(

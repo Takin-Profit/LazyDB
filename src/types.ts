@@ -203,7 +203,7 @@ export type DatabaseOptions = {
 	serializer?: SerializerOptions
 	pragma?: PragmaConfig
 	environment?: "development" | "testing" | "production"
-	logger?: (message: string) => void
+	logger?: (message?: string) => void
 	statementCache?: true | StatementCacheOptions
 	cleanupInterval?: TimeString
 }
@@ -260,7 +260,7 @@ export type RepositoryOptions<
 	queryKeys?: QK
 	timestamps?: boolean
 	serializer: SerializerConfig
-	logger?: (msg: string) => void
+	logger?: (msg?: string) => void
 }>
 
 export function validateRepositoryOptions(

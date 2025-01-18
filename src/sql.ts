@@ -196,34 +196,40 @@ export function buildInsertQuery<T extends Record<string, unknown> | object>(
 	const placeholders: string[] = []
 
 	const ignorableFields = ["_id", "createdAt", "updatedAt"]
+
 	if (ttl) {
 		columns.push("__expires_at")
 		values.push(ttl)
 		placeholders.push("?")
 	}
+
 	if (queryKeys) {
-		// Add queryable fields if they exist
+		// Handle non-nested fields
 		for (const [field, def] of Object.entries(queryKeys)) {
-			if (ignorableFields.includes(field)) {
+			if (
+				ignorableFields.includes(field) ||
+				field.includes(".") ||
+				!isQueryKeyDef(def)
+			) {
 				continue
 			}
-			if (!field.includes(".") && isQueryKeyDef(def)) {
-				const value =
-					entity[field as keyof Omit<T, "_id" | "createdAt" | "updatedAt">]
-				if (field in entity) {
-					columns.push(field)
-					values.push(toSqliteValue(value as unknown as LazyDbValue, def.type))
-					placeholders.push("?")
-				}
+
+			const value = entity[field as keyof typeof entity]
+			if (field in entity) {
+				columns.push(field)
+				values.push(toSqliteValue(value as LazyDbValue, def.type))
+				placeholders.push("?")
 			}
 		}
 
 		// Handle nested fields
 		const nestedValues = extractQueryableValues(entity, queryKeys)
-		for (const [columnName, value] of Object.entries(nestedValues)) {
-			columns.push(columnName)
-			values.push(value as SupportedValueType)
-			placeholders.push("?")
+		for (const [columnName, { value, type }] of Object.entries(nestedValues)) {
+			if (value !== undefined) {
+				columns.push(columnName)
+				values.push(toSqliteValue(value as LazyDbValue, type))
+				placeholders.push("?")
+			}
 		}
 	}
 
@@ -231,9 +237,7 @@ export function buildInsertQuery<T extends Record<string, unknown> | object>(
 	columns.push("__lazy_data")
 	placeholders.push("?")
 
-	const sql = `INSERT INTO ${tableName} (${columns.join(
-		", "
-	)}) VALUES (${placeholders.join(", ")}) ${buildReturningClause(timestamps)}`
+	const sql = `INSERT INTO ${tableName} (${columns.join(", ")}) VALUES (${placeholders.join(", ")}) ${buildReturningClause(timestamps)}`
 
 	return { sql, values }
 }
