@@ -87,9 +87,7 @@ export type SystemQueryKeys = {
 	updatedAt?: QueryKeyDef<string>
 }
 
-export type QueryKeys<T> = {
-	[P in DotPaths<T>]?: QueryKeyDef<DotPathValue<T, P>>
-} & SystemQueryKeys
+export type QueryKeys<T> = QueryKeysSchema<T> & SystemQueryKeys
 
 export function validateQueryKeys(data: unknown): ValidationError[] {
 	const errors: ValidationError[] = []
@@ -119,6 +117,79 @@ export type Entity<T extends EntityType> = {
 	updatedAt?: string
 } & T
 
+type FirstNumber = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+type Digit = "0" | FirstNumber
+
+type Hours =
+	| FirstNumber
+	| "10"
+	| "11"
+	| "12"
+	| "13"
+	| "14"
+	| "15"
+	| "16"
+	| "17"
+	| "18"
+	| "19"
+	| "20"
+	| "21"
+	| "22"
+	| "23"
+
+export type TimeUnit = "ms" | "s" | "m" | "h" | "d"
+
+type OneThroughFive = "1" | "2" | "3" | "4" | "5"
+
+type MsTimeUnit =
+	| `${FirstNumber}ms`
+	| `${FirstNumber}${Digit}ms`
+	| `${FirstNumber}${Digit}${Digit}ms`
+
+type HoursTimeUnit = `${Hours}h`
+
+type MinutesTimeUnit =
+	| `${OneThroughFive}${Digit}m` // "10m" to "59m"
+	| `60m` // "60m"
+	| `${FirstNumber}m` // "1m" to "9m"
+
+type SecondsTimeUnit =
+	| `${OneThroughFive}${Digit}s` // "10s" to "59s"
+	| `60s` // "60s"
+	| `${FirstNumber}s` // "1s" to "9s"
+
+type DaysTimeUnit =
+	| `${FirstNumber}d`
+	| `${FirstNumber}${Digit}d`
+	| `${"1" | "2"}${Digit}${Digit}d`
+	| `${"3"}${"0" | OneThroughFive}${Digit}d`
+	| `3${"6"}${"0" | OneThroughFive}d`
+
+export type TimeString =
+	| MsTimeUnit
+	| HoursTimeUnit
+	| DaysTimeUnit
+	| MinutesTimeUnit
+	| SecondsTimeUnit
+
+// utils/timeValidator.ts
+
+export function isTimeString(time: string): time is TimeString {
+	const msRegex = /^[1-9]\d{0,2}ms$/
+	const hRegex = /^([1-9]|1\d|2[0-3])h$/
+	const mRegex = /^([1-5]\d|60)m$/
+	const sRegex = /^([1-5]\d|60)s$/
+	const dRegex = /^([1-9]|[1-2]\d|3[0-5]\d|36[0-5])d$/
+
+	return (
+		msRegex.test(time) ||
+		hRegex.test(time) ||
+		mRegex.test(time) ||
+		sRegex.test(time) ||
+		dRegex.test(time)
+	)
+}
+
 export type SerializerConfig = {
 	encode: (obj: unknown) => Uint8Array
 	decode: (buf: Uint8Array) => unknown
@@ -134,6 +205,7 @@ export type DatabaseOptions = {
 	environment?: "development" | "testing" | "production"
 	logger?: (message: string) => void
 	statementCache?: true | StatementCacheOptions
+	cleanupInterval?: TimeString
 }
 
 export function validateDatabaseOptions(options: unknown): ValidationError[] {
@@ -165,6 +237,15 @@ export function validateDatabaseOptions(options: unknown): ValidationError[] {
 			validationErr({
 				msg: "environment must be 'development', 'testing', or 'production'",
 				path: "environment",
+			})
+		)
+	}
+
+	if (opts.cleanupInterval && !isTimeString(opts.cleanupInterval)) {
+		errors.push(
+			validationErr({
+				msg: "cleanupInterval must be a string with a time unit (ms, s, m, h, d)",
+				path: "cleanupInterval",
 			})
 		)
 	}

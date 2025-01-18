@@ -4,6 +4,7 @@
 
 import type { DatabaseSync, StatementSync } from "node:sqlite"
 import {
+	TimeString,
 	validateRepositoryOptions,
 	type Entity,
 	type EntityType,
@@ -24,6 +25,7 @@ import { buildUpdateManyQuery, buildUpdateQuery } from "./update.js"
 import { buildDeleteManyQuery, buildDeleteQuery } from "./delete.js"
 import { isValidationErrs } from "./validate.js"
 import { buildWhereClause } from "./where.js"
+import { parseTimeString } from "./ttl.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -223,9 +225,16 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 		return result.length > 0 ? result[0] : null
 	}
 
-	insert(entity: T): Entity<T> {
+	insert(entity: T, options?: { ttl?: TimeString }): Entity<T> {
 		try {
 			this.#logger?.(`Inserting entity into ${this.#name}`)
+
+			let expiresAt: number | undefined
+
+			if (options?.ttl) {
+				const ttlMs = parseTimeString(options.ttl)
+				expiresAt = Date.now() + ttlMs
+			}
 
 			const serializedData = this.#serializer.encode(entity)
 

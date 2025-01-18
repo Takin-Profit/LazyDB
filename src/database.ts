@@ -20,6 +20,7 @@ import {
 	type SystemQueryKeys,
 	validateRepositoryOptions,
 	validateDatabaseOptions,
+	type TimeString,
 } from "./types.js"
 import { Repository } from "./repository.js"
 import {
@@ -30,6 +31,7 @@ import {
 import type stringifyLib from "fast-safe-stringify"
 import { buildCreateTableSQL, createIndexes } from "./sql.js"
 import { isValidationErrs } from "./validate.js"
+import { parseTimeString } from "./ttl.js"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -225,6 +227,7 @@ class LazyDb {
 			// Initialize database with proper error handling
 			this.#db = new DatabaseSync(options.location, { open: true })
 			this.#timestampEnabled = options.timestamps ?? true
+
 			this.#logger?.("Database opened successfully")
 
 			// Setup serializer
@@ -263,6 +266,11 @@ class LazyDb {
 
 			// Configure pragmas with error handling
 			this.#configurePragmas(finalPragmas)
+
+			if (options.cleanupInterval) {
+				this.#startCleanupInterval(options.cleanupInterval)
+			}
+
 			this.#logger?.("Database initialization complete")
 		} catch (error) {
 			this.#logger?.(
@@ -626,6 +634,68 @@ class LazyDb {
 				error instanceof Error ? error : new Error(String(error))
 			)
 		}
+	}
+
+	#getAllTableNames(): string[] {
+		const sql = `SELECT name FROM sqlite_master
+                 WHERE type='table'
+                 AND name NOT IN ('sqlite_sequence', 'sqlite_stat1')`
+
+		try {
+			const stmt = this.#prepareStatement(sql)
+			const results = stmt.all() as Array<{ name: string }>
+			return results.map((r) => r.name)
+		} catch (error) {
+			this.#logger?.(
+				`Failed to get table names: ${error instanceof Error ? error.message : String(error)}`
+			)
+			if (isNodeSqliteError(error)) {
+				throw error
+			}
+			throw NodeSqliteError.fromNodeSqlite(
+				error instanceof Error ? error : new Error(String(error))
+			)
+		}
+	}
+
+	#cleanExpiredData(tableName: string): void {
+		const sql = `DELETE FROM ${tableName}
+               WHERE __expires_at IS NOT NULL
+               AND __expires_at < ?`
+		const currentTime = Date.now()
+		this.#prepareStatement(sql).run(currentTime)
+	}
+
+	#startCleanupInterval(cleanupInterval?: TimeString): void {
+		if (!cleanupInterval) {
+			return
+		}
+		const interval = parseTimeString(cleanupInterval as TimeString)
+
+		setInterval(() => {
+			try {
+				const tables = this.#getAllTableNames()
+				for (const table of tables) {
+					this.#cleanExpiredData(table)
+				}
+				this.#logger?.("Cleanup of expired data completed")
+			} catch (error) {
+				this.#logger?.(
+					`Error during cleanup: ${error instanceof Error ? error.message : String(error)}`
+				)
+				if (isNodeSqliteError(error)) {
+					throw NodeSqliteError.fromNodeSqlite(error)
+				}
+
+				throw new NodeSqliteError(
+					"ERR_SQLITE_CLEANUP",
+					SqlitePrimaryResultCode.SQLITE_ERROR,
+					"Cleanup error",
+					`Error during cleanup: ${error instanceof Error ? error.message : String(error)}`,
+					error instanceof Error ? error : undefined
+				)
+			}
+		}, interval)
 	}
 }
 
