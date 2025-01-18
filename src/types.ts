@@ -87,7 +87,9 @@ export type SystemQueryKeys = {
 	updatedAt?: QueryKeyDef<string>
 }
 
-export type QueryKeys<T> = QueryKeysSchema<T> & SystemQueryKeys
+export type QueryKeys<T> = {
+	[P in DotPaths<T>]?: QueryKeyDef<DotPathValue<T, P>>
+} & SystemQueryKeys
 
 export function validateQueryKeys(data: unknown): ValidationError[] {
 	const errors: ValidationError[] = []
