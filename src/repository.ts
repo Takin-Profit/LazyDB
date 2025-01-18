@@ -4,7 +4,7 @@
 
 import type { DatabaseSync, StatementSync } from "node:sqlite"
 import {
-	TimeString,
+	type TimeString,
 	validateRepositoryOptions,
 	type Entity,
 	type EntityType,

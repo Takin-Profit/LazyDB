@@ -84,6 +84,8 @@ export function buildCreateTableSQL<T extends EntityType>(
 	}
 
 	columns.push("__lazy_data BLOB")
+	// Add expiration column - using INTEGER for timestamp in milliseconds
+	columns.push("__expires_at INTEGER")
 
 	return `CREATE TABLE IF NOT EXISTS ${name} (${columns.join(", ")})`
 }
@@ -105,7 +107,10 @@ export function createIndexes<T extends EntityType>(
 
 	const nestedIndexes = createNestedIndexDefinitions(name, queryKeys)
 
-	return [...regularIndexes, ...nestedIndexes]
+	// Add expiration index
+	const expirationIndex = `CREATE INDEX IF NOT EXISTS idx_${name}_expires_at ON ${name}(__expires_at)`
+
+	return [...regularIndexes, ...nestedIndexes, expirationIndex]
 }
 
 export function toSqliteValue(
