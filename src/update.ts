@@ -15,11 +15,7 @@ import { buildReturningClause, toSqliteValue } from "./sql.js"
 import { buildWhereClause } from "./where.js"
 import { extractQueryableValues } from "./paths.js"
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
-
-interface UpdateQueryResult {
-	sql: string
-	params: SupportedValueType[]
-}
+import type { PartialDeep } from "type-fest"
 
 /**
  * Builds an SQL UPDATE query
@@ -39,24 +35,35 @@ export function buildUpdateQuery<
 	where: Pick<FindOptions<T, QK>, "where">,
 	queryKeys?: QK,
 	timestamps = false
-): UpdateQueryResult {
+): {
+	sql: string
+	params: SupportedValueType[]
+	lazyDataIndex: number
+} {
 	const setColumns: string[] = []
 	const params: SupportedValueType[] = []
 	const ignorableFields = ["_id", "createdAt"]
+	let lazyDataIndex = 0
 
-	// Add updatable query key fields
+	// Add regular fields first
 	if (queryKeys) {
 		for (const [field, def] of Object.entries(queryKeys)) {
-			if (ignorableFields.includes(field)) {
+			if (
+				ignorableFields.includes(field) ||
+				field.includes(".") ||
+				!isQueryKeyDef(def)
+			) {
 				continue
 			}
 
-			if (!field.includes(".")) {
-				const value = entity[field as keyof Partial<T>]
-				if (field in entity && isQueryKeyDef(def)) {
-					setColumns.push(`${field} = ?`)
-					params.push(toSqliteValue(value as LazyDbValue, def.type))
-				}
+			if (field in entity) {
+				setColumns.push(`${field} = ?`)
+				params.push(
+					toSqliteValue(
+						entity[field as keyof typeof entity] as LazyDbValue,
+						def.type
+					)
+				)
 			}
 		}
 
@@ -65,16 +72,19 @@ export function buildUpdateQuery<
 			entity,
 			queryKeys as QueryKeys<Partial<T>>
 		)
-		for (const [columnName, value] of Object.entries(nestedValues)) {
+		for (const [columnName, { value, type }] of Object.entries(nestedValues)) {
 			setColumns.push(`${columnName} = ?`)
-			params.push(value as SupportedValueType)
+			params.push(toSqliteValue(value as LazyDbValue, type))
 		}
 	}
 
-	// Add __lazy_data placeholder (but don't add a param for it)
+	// Record the index where __lazy_data param will go
+	lazyDataIndex = params.length
+
+	// Add __lazy_data placeholder
 	setColumns.push("__lazy_data = ?")
 
-	// Add updatedAt if timestamps are enabled
+	// Add updatedAt if timestamps enabled
 	if (timestamps) {
 		setColumns.push("updatedAt = CURRENT_TIMESTAMP")
 	}
@@ -86,16 +96,15 @@ export function buildUpdateQuery<
 
 	// Build complete SQL
 	const sql = `UPDATE ${tableName}
-                SET ${setColumns.join(", ")}
-                ${whereResult.sql ? `WHERE ${whereResult.sql}` : ""}
-                ${buildReturningClause(timestamps)}`
+               SET ${setColumns.join(", ")}
+               ${whereResult.sql ? `WHERE ${whereResult.sql}` : ""}
+               ${buildReturningClause(timestamps)}`
 
 	// Add WHERE clause parameters
 	params.push(...whereResult.params)
 
-	return { sql, params }
+	return { sql, params, lazyDataIndex }
 }
-
 interface UpdateManyQueryResult {
 	sql: string
 	values: SupportedValueType[][]
@@ -106,7 +115,7 @@ export function buildUpdateManyQuery<
 	QK extends QueryKeys<T> = QueryKeys<T>,
 >(
 	tableName: string,
-	updates: Partial<T>,
+	updates: PartialDeep<T>,
 	entities: Entity<T>[],
 	queryKeys?: QK,
 	timestamps = false
@@ -117,21 +126,41 @@ export function buildUpdateManyQuery<
 
 	// Build the SET clause columns first
 	if (queryKeys) {
-		// Handle regular fields
+		// Handle regular fields first
 		for (const [field, def] of Object.entries(queryKeys)) {
 			if (ignorableFields.includes(field) || !isQueryKeyDef(def)) {
 				continue
 			}
 
-			if (!field.includes(".") && field in updates) {
-				setColumns.push(`${field} = ?`)
+			if (!field.includes(".")) {
+				const value = updates[field as keyof PartialDeep<T>]
+				if (value !== undefined) {
+					setColumns.push(`${field} = ?`)
+				}
 			}
 		}
 
 		// Handle nested fields
-		const nestedFields = Object.keys(queryKeys).filter((k) => k.includes("."))
-		for (const field of nestedFields) {
-			if (field in updates) {
+		for (const [field, def] of Object.entries(queryKeys)) {
+			if (!isQueryKeyDef(def) || !field.includes(".")) {
+				continue
+			}
+
+			// Split the field path and navigate the updates object
+			const parts = field.split(".")
+			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+			let currentValue: any = updates
+			let isDefined = true
+
+			for (const part of parts) {
+				if (currentValue === undefined || !(part in currentValue)) {
+					isDefined = false
+					break
+				}
+				currentValue = currentValue[part]
+			}
+
+			if (isDefined) {
 				const columnName = field.replace(/\./g, "_")
 				setColumns.push(`${columnName} = ?`)
 			}
@@ -165,16 +194,44 @@ export function buildUpdateManyQuery<
 		}
 		const entityValues: SupportedValueType[] = []
 
-		// Add SET clause values
+		// Add SET clause values for regular fields
 		if (queryKeys) {
 			for (const [field, def] of Object.entries(queryKeys)) {
 				if (ignorableFields.includes(field) || !isQueryKeyDef(def)) {
 					continue
 				}
 
-				if (!field.includes(".") && field in updates) {
-					const value = updates[field as keyof Partial<T>]
-					entityValues.push(toSqliteValue(value as LazyDbValue, def.type))
+				if (!field.includes(".")) {
+					const value = updates[field as keyof PartialDeep<T>]
+					if (value !== undefined) {
+						entityValues.push(toSqliteValue(value as LazyDbValue, def.type))
+					}
+				}
+			}
+
+			// Add SET clause values for nested fields
+			for (const [field, def] of Object.entries(queryKeys)) {
+				if (!isQueryKeyDef(def) || !field.includes(".")) {
+					continue
+				}
+
+				const parts = field.split(".")
+				// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+				let currentValue: any = updates
+				let isDefined = true
+
+				for (const part of parts) {
+					if (currentValue === undefined || !(part in currentValue)) {
+						isDefined = false
+						break
+					}
+					currentValue = currentValue[part]
+				}
+
+				if (isDefined) {
+					entityValues.push(
+						toSqliteValue(currentValue as LazyDbValue, def.type)
+					)
 				}
 			}
 		}

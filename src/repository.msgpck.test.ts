@@ -8,7 +8,6 @@ import LazyDb from "./database.js"
 import type { Repository } from "./repository.js"
 import type { SystemQueryKeys } from "./types.js"
 import type { DatabaseOptions } from "./types.js"
-import { buildInsertQuery } from "./sql.js"
 
 // 1) Define a minimal test entity schema
 interface ExtendedEntity {
@@ -211,52 +210,6 @@ const nestedQueryKeys = {
 	"optionalNested.tag": { type: "TEXT" as const, nullable: true },
 } as const
 
-test("debug insert with nested paths", () => {
-	interface TestNested {
-		name: string
-		metadata: {
-			value: number
-			flag: boolean
-		}
-	}
-
-	const queryKeys = {
-		name: { type: "TEXT" as const },
-		"metadata.value": { type: "INTEGER" as const },
-		"metadata.flag": { type: "BOOLEAN" as const },
-	}
-
-	const nestedRepo = db.repository<TestNested>("nested_test").create({
-		queryKeys,
-	})
-
-	const entity = {
-		name: "test",
-		metadata: { value: 42, flag: true },
-	}
-
-	// Log every step
-	const { sql, values } = buildInsertQuery(
-		"nested_test",
-		entity,
-		queryKeys,
-		false
-	)
-	console.log("\nDebug Insert:", {
-		sql,
-		values,
-		placeholdersInSQL: (sql.match(/\?/g) || []).length,
-		providedValues: values.length,
-		entityJSON: JSON.stringify(entity),
-	})
-
-	const inserted = nestedRepo.insert(entity)
-
-	assert.equal(inserted.name, "test")
-	assert.equal(inserted.metadata.value, 42)
-	assert.equal(inserted.metadata.flag, true)
-})
-
 test("inserts entity with missing optional nested path", () => {
 	const nestedRepo = db.repository<NestedEntity>("nested").create({
 		queryKeys: nestedQueryKeys,
@@ -348,4 +301,201 @@ test("handles null values in nested paths", () => {
 	const inserted = nullableRepo.insert(entity)
 	assert.equal(inserted.required.value, 42)
 	assert.equal(inserted.optional?.value, null)
+})
+
+test("insertMany handles empty array gracefully", () => {
+	const result = repo.insertMany([])
+	assert.deepEqual(result, [])
+})
+
+test("insertMany rollbacks transaction on partial failure", () => {
+	const validEntity = { title: "valid", score: 42, isActive: true }
+	// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+	const invalidEntity = { title: "valid2", score: null as any, isActive: true } // Will fail
+
+	assert.throws(() => {
+		repo.insertMany([validEntity, invalidEntity])
+	}, /NOT NULL/)
+
+	// Verify nothing was inserted due to rollback
+	const results = repo.find({})
+	assert.equal(results.length, 0)
+})
+
+test("update preserves unmodified fields", () => {
+	const entity = repo.insert({
+		title: "original",
+		score: 42,
+		isActive: true,
+	})
+
+	const updated = repo.update(
+		{ where: ["_id", "=", entity._id] },
+		{ score: 100 }
+	)
+
+	assert.equal(updated?.title, "original")
+	assert.equal(updated?.score, 100)
+	assert.equal(updated?.isActive, true)
+})
+
+/* test("updateMany returns correct count and updates all matching entities", () => {
+	// Insert multiple entities
+	repo.insertMany([
+		{ title: "test1", score: 42, isActive: true },
+		{ title: "test2", score: 42, isActive: true },
+		{ title: "test3", score: 100, isActive: true },
+	])
+
+	const updateCount = repo.updateMany(
+		{ where: ["score", "=", 42] },
+		{ isActive: false }
+	)
+
+	assert.equal(updateCount, 2)
+
+	const updated = repo.find({ where: ["isActive", "=", false] })
+	assert.equal(updated.length, 2)
+})
+ */
+test("find handles complex where conditions with multiple AND/OR", () => {
+	repo.insertMany([
+		{ title: "A", score: 10, isActive: true },
+		{ title: "B", score: 20, isActive: false },
+		{ title: "C", score: 30, isActive: true },
+		{ title: "D", score: 40, isActive: false },
+	])
+
+	const results = repo.find({
+		where: [
+			["score", ">", 15],
+			"AND",
+			[["isActive", "=", true], "OR", ["score", ">=", 40]],
+		],
+	})
+
+	assert.equal(results.length, 2) // Should match C and D
+})
+
+test("find with orderBy and complex where conditions", () => {
+	repo.insertMany([
+		{ title: "A", score: 10, isActive: true },
+		{ title: "B", score: 20, isActive: false },
+		{ title: "C", score: 30, isActive: true },
+	])
+
+	const results = repo.find({
+		where: ["isActive", "=", true],
+		orderBy: { score: "DESC" },
+	})
+
+	assert.equal(results.length, 2)
+	assert.equal(results[0].score, 30) // Highest score first
+	assert.equal(results[1].score, 10)
+})
+
+test("find with pagination", () => {
+	repo.insertMany([
+		{ title: "A", score: 10, isActive: true },
+		{ title: "B", score: 20, isActive: true },
+		{ title: "C", score: 30, isActive: true },
+		{ title: "D", score: 40, isActive: true },
+	])
+
+	const page1 = repo.find({ limit: 2, offset: 0, orderBy: { score: "ASC" } })
+	const page2 = repo.find({ limit: 2, offset: 2, orderBy: { score: "ASC" } })
+
+	assert.equal(page1.length, 2)
+	assert.equal(page2.length, 2)
+	assert.equal(page1[0].score, 10)
+	assert.equal(page2[0].score, 30)
+})
+
+test("findOne returns first matching result", () => {
+	repo.insertMany([
+		{ title: "A", score: 10, isActive: true },
+		{ title: "B", score: 20, isActive: true },
+	])
+
+	const result = repo.findOne({ where: ["score", ">", 15] })
+	assert.ok(result)
+	assert.equal(result.title, "B")
+})
+
+test("deleteById returns false for non-existent ID", () => {
+	const result = repo.deleteById(999)
+	assert.equal(result, false)
+})
+
+test("handles timestamps correctly", () => {
+	const entity = repo.insert({ title: "test", score: 42, isActive: true })
+
+	// Verify timestamps exist and are in correct format
+	assert.ok(entity.createdAt)
+	assert.ok(Date.parse(entity.createdAt))
+
+	// Update should change updatedAt but not createdAt
+	const updated = repo.update(
+		{ where: ["_id", "=", entity._id] },
+		{ score: 100 }
+	)
+
+	assert.equal(updated?.createdAt, entity.createdAt)
+})
+
+test("handles mixed updates to nullable and non-nullable fields", () => {
+	const entity = repo.insert({
+		title: "test",
+		score: 42,
+		isActive: true,
+	})
+
+	const updated = repo.update(
+		{ where: ["_id", "=", entity._id] },
+		{ title: null, score: 100 }
+	)
+
+	assert.equal(updated?.title, null)
+	assert.equal(updated?.score, 100)
+	assert.equal(updated?.isActive, true)
+})
+
+test("findOne returns null for no matches", () => {
+	const result = repo.findOne({ where: ["_id", "=", 999] })
+	assert.equal(result, null)
+})
+
+test("insert preserves arrays in serialized data", () => {
+	const entity = repo.insert({
+		title: "test",
+		score: 42,
+		isActive: true,
+		tags: ["tag1", "tag2"], // This is stored in serialized data
+	})
+
+	const retrieved = repo.findById(entity._id)
+	assert.deepEqual(retrieved?.tags, ["tag1", "tag2"])
+})
+
+test("handles repository with all nullable fields", () => {
+	interface AllNullable {
+		field1?: string | null
+		field2?: number | null
+	}
+
+	const nullableKeys = {
+		field1: { type: "TEXT" as const, nullable: true },
+		field2: { type: "INTEGER" as const, nullable: true },
+	} as const
+
+	const nullableRepo = db.repository<AllNullable>("nullable_test").create({
+		queryKeys: nullableKeys,
+	})
+
+	const entity = nullableRepo.insert({})
+	assert.equal(entity.field1, undefined)
+	assert.equal(entity.field2, undefined)
+
+	const found = nullableRepo.findById(entity._id)
+	assert.deepEqual(found, entity)
 })

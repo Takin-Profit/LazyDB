@@ -26,6 +26,7 @@ import { buildDeleteManyQuery, buildDeleteQuery } from "./delete.js"
 import { isValidationErrs } from "./validate.js"
 import { buildWhereClause } from "./where.js"
 import { parseTimeString } from "./ttl.js"
+import type { PartialDeep } from "type-fest"
 const stringify: typeof stringifyLib.default = createRequire(import.meta.url)(
 	"fast-safe-stringify"
 ).default
@@ -412,7 +413,7 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 	 */
 	update(
 		options: Pick<FindOptions<T, QK>, "where">,
-		updates: Partial<T>
+		updates: PartialDeep<T>
 	): Entity<T> | null {
 		try {
 			this.#db.exec("BEGIN IMMEDIATE TRANSACTION")
@@ -443,13 +444,17 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 
 				// Deserialize existing data and merge with updates
 				const existingData = this.#serializer.decode(existing.__lazy_data) as T
+				this.#logger?.(`Existing data: ${stringify(existingData)}`)
+				this.#logger?.(`Updates: ${stringify(updates)}`)
 				const mergedData = {
 					...existingData,
 					...updates,
 				}
 
+				this.#logger?.(`Merged data: ${stringify(mergedData)}`)
+
 				// Build and execute update query
-				const { sql, params } = buildUpdateQuery(
+				const { sql, params, lazyDataIndex } = buildUpdateQuery(
 					this.#name,
 					mergedData,
 					options,
@@ -459,7 +464,14 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 
 				const updateStmt = this.#prepareStatement(sql)
 				const serializedData = this.#serializer.encode(mergedData)
-				updateStmt.run(...params, serializedData)
+				// Insert serialized data at the correct position in params
+				const finalParams = [
+					...params.slice(0, lazyDataIndex),
+					serializedData,
+					...params.slice(lazyDataIndex),
+				]
+
+				updateStmt.run(...finalParams)
 
 				// Get the updated record
 				const result = findStmt.get(
@@ -514,27 +526,24 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 	 */
 	updateMany(
 		options: Pick<FindOptions<T, QK>, "where">,
-		updates: Partial<T>
+		updates: PartialDeep<T>
 	): number {
 		this.#logger?.(
 			`Updating multiple entities in ${this.#name} with options: ${stringify(options)}`
 		)
 
 		try {
-			// Start a transaction
 			this.#db.exec("BEGIN TRANSACTION")
 
 			try {
-				// First find all matching entities
 				const existingEntities = this.find(options)
 
 				if (existingEntities.length === 0) {
 					this.#logger?.("No entities matched update criteria")
-					this.#db.exec("COMMIT") // Nothing to roll back
+					this.#db.exec("COMMIT")
 					return 0
 				}
 
-				// Build the update query once
 				const { sql, values } = buildUpdateManyQuery(
 					this.#name,
 					updates,
@@ -545,27 +554,23 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 
 				this.#logger?.(`Generated update query: ${sql}`)
 
-				// Prepare statement once
 				const stmt = this.#prepareStatement(sql)
 				let updateCount = 0
 
-				// Execute update for each entity
 				for (let i = 0; i < existingEntities.length; i++) {
 					const existing = existingEntities[i]
-					// Merge updates with existing entity
-					const merged = {
-						...existing,
-						...updates,
-					}
 
-					// Serialize the merged data
+					// Do a deep merge for nested structures
+					const merged = this.#mergeDeep(existing, updates)
+
 					const serializedData = this.#serializer.encode(merged)
-
-					// Replace the placeholder in values[i] with actual serialized data
 					const entityValues = [...values[i]]
+
+					// Find and replace the lazy data placeholder
 					const lazyDataIndex = entityValues.findIndex(
 						(v) => v instanceof Uint8Array
 					)
+
 					if (lazyDataIndex !== -1) {
 						entityValues[lazyDataIndex] = serializedData
 					}
@@ -579,13 +584,11 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 					updateCount += Number(result.changes)
 				}
 
-				// Commit transaction
 				this.#db.exec("COMMIT")
 				this.#logger?.(`Successfully updated ${updateCount} entities`)
 
 				return updateCount
 			} catch (error) {
-				// Rollback on any error
 				this.#logger?.("Rolling back transaction due to error")
 				this.#db.exec("ROLLBACK")
 				throw error
@@ -609,6 +612,46 @@ class Repository<T extends EntityType, QK extends QueryKeys<T> = QueryKeys<T>> {
 				error instanceof Error ? error : undefined
 			)
 		}
+	}
+
+	// Add this helper method to Repository class
+	#mergeDeep<S>(target: S, source: PartialDeep<S, Record<string, unknown>>): S {
+		const isPlainObject = (
+			value: unknown
+		): value is Record<string, unknown> => {
+			return (
+				typeof value === "object" &&
+				value !== null &&
+				!Array.isArray(value) &&
+				Object.getPrototypeOf(value) === Object.prototype
+			)
+		}
+		if (!isPlainObject(target) || !isPlainObject(source)) {
+			return source as S
+		}
+
+		const output = { ...target }
+
+		// Extract keys with proper type inference
+		const keys = Object.keys(source) as Array<keyof typeof source>
+
+		for (const key of keys) {
+			const targetValue = output[key as keyof S]
+			const sourceValue = source[key]
+
+			if (isPlainObject(targetValue) && isPlainObject(sourceValue)) {
+				// TypeScript can now infer that both values are objects
+				;(output[key as keyof S] as Record<string, unknown>) = this.#mergeDeep(
+					targetValue as Record<string, unknown>,
+					sourceValue as PartialDeep<Record<string, unknown>>
+				)
+			} else if (sourceValue !== undefined) {
+				output[key as keyof S] = sourceValue as (S &
+					Record<string, unknown>)[keyof S]
+			}
+		}
+
+		return output
 	}
 
 	/**

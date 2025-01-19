@@ -8,7 +8,6 @@ import LazyDb from "./database.js"
 import { NodeSqliteError, SqlitePrimaryResultCode } from "./errors.js"
 import type { Repository } from "./repository.js"
 import type { SystemQueryKeys } from "./types.js"
-import { buildInsertQuery } from "./sql.js"
 
 interface TestEntity {
 	name: string
@@ -85,7 +84,7 @@ test("_clearExpiredData - handles tables with no expired data", () => {
 })
 
 test("clearExpiredData - handles empty tables", () => {
-	const _ = db.repository<TestEntity>("empty").create({
+	db.repository<TestEntity>("empty").create({
 		queryKeys: testEntityKeys,
 	})
 
@@ -148,19 +147,6 @@ test("backup - handles multiple tables and complex data", () => {
 	const entity = complexRepo.insert({
 		name: "test",
 		metadata: { value: 42, flag: true },
-	})
-
-	const { sql, values } = buildInsertQuery(
-		"complex",
-		entity,
-		complexKeys,
-		false
-	)
-	console.log({
-		sql,
-		values,
-		placeholderCount: (sql.match(/\?/g) || []).length,
-		valueCount: values.length,
 	})
 
 	db.backup(backupPath)
